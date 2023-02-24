@@ -1,0 +1,26 @@
+title: baseline_26
+
+data_dir: ../../data
+log_dir: Transformer_26_log
+
+batch_size: 1
+lr: 0.0001
+global_batch_idx: 0
+batch_dropout: 0.1
+
+weight_decay: 0
+decay_steps: 10
+decay_rate: 0.9
+
+patience: 200
+best_loss: 999999999
+
+model:
+  num_heads: 16
+  attention_layers: 12
+  n_embd: 64
+  dropout: 0.2
+  input_dim: 108
+  output_dim: 26
+  
+load_checkpoint: false

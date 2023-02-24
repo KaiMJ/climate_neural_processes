@@ -1,0 +1,29 @@
+title: SFNP
+
+data_dir: ../../data
+log_dir: logs
+
+batch_size: 1
+lr: 0.0001
+global_batch_idx: 0
+batch_dropout: 0.1
+
+weight_decay: 0
+decay_steps: 10
+decay_rate: 0.9
+
+patience: 200
+best_loss: 999999999
+
+model:
+  hidden_layers: 4
+  z_hidden_layers: 4
+  z_hidden_dim: 64
+  z_dim: 64
+  input_dim: 108
+  output_dim: 26
+  hidden_dim: 64
+  context_percentage_low: 0.2
+  context_percentage_high: 0.5
+
+load_checkpoint: false

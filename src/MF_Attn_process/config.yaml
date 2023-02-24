@@ -1,0 +1,38 @@
+title: 
+
+data_dir: ../../data
+log_dir: logs
+
+batch_size: 1
+lr: 0.0005
+global_batch_idx: 0
+
+base_lr: 0.0001
+max_lr: 0.01
+optim: adam
+weight_decay: 0.01
+decay_steps: 20
+decay_rate: 0.95
+gamma: 0.9
+
+early_stopping: 250
+patience: 250
+best_loss: 99999
+
+model:
+  l1_input_dim: 108
+  l1_output_dim: 26
+  l2_input_dim: 132
+  l2_output_dim: 32
+
+  num_heads: 4
+  dropout: 0.2
+  attention_layers: 3
+  hidden_dim: 64
+  hidden_layers: 3
+  decoder_layers: 3
+
+  context_percentage_low: 0.2
+  context_percentage_high: 0.5
+  
+load_checkpoint: False
