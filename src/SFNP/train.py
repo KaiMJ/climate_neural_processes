@@ -16,6 +16,10 @@ from lib.loss import *
 from lib.dataset import *
 from model import Model
 
+from ray import tune
+from ray.tune import CLIReporter
+from ray.tune.schedulers import ASHAScheduler
+
 scaler = torch.cuda.amp.GradScaler()
 
 # parser = argparse.ArgumentParser()
