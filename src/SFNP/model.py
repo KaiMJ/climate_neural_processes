@@ -107,7 +107,7 @@ class Model(nn.Module):
         self.l2_encoder_model = MLP_Encoder(self.input_dim+self.output_dim, self.encoder_output_dim, self.hidden_layers, self.hidden_dim)
         self.l2_z_encoder_model = MLP_ZEncoder(self.z_dim, self.z_dim, self.z_hidden_layers, self.z_hidden_dim)
         self.l2_decoder_model = MLP_Decoder(self.decoder_input_dim, self.output_dim, self.hidden_layers, self.hidden_dim)
-
+        print('model init')
     def count_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
@@ -118,9 +118,9 @@ class Model(nn.Module):
         n_context = int(x.shape[0]*context_percentage)
         ind = np.arange(x.shape[0])
         mask = np.random.choice(ind, size=n_context, replace=False)
+        other = np.setdiff1d(ind, mask)
 
-        return x[mask], y[mask], mask
-
+        return x[mask], y[mask], x[other], y[other], mask
 
     def sample_z(self, mean, var, n=1):
         """Reparameterisation trick."""
@@ -161,15 +161,22 @@ class Model(nn.Module):
             l2_zs = self.sample_z(l2_z_mu_all, l2_z_cov_all, l2_x_t.size(0))
             l2_output_mu, l2_output_cov = self.z_to_y(l2_x_t,l2_zs)
             l2_truth = l2_y_t
+            self.debug = {
+                'l2_x_all': l2_x_all,
+                'l2_y_all': l2_y_all,
+                'l2_r_all': l2_r_all,
+                'l2_r_c': l2_r_c,
+                'l2_zs': l2_zs,
+            }
             if not return_idxs:
-                return l2_output_mu, l2_output_cov, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c
+                return l2_output_mu, l2_output_cov, l2_truth, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c
             if return_idxs:
-                return l2_output_mu, l2_output_cov, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c, idxs
+                return l2_output_mu, l2_output_cov, l2_truth, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c, idxs
+
 
         else:
             l2_output_mu, l2_output_cov = None, None
             if l2_x_all is not None:
                 l2_zs = self.sample_z(l2_z_mu_all, l2_z_cov_all, l2_x_all.size(0))
                 l2_output_mu, l2_output_cov = self.z_to_y(l2_x_all, l2_zs)
-
             return l2_output_mu, l2_output_cov

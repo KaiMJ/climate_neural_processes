@@ -12,8 +12,13 @@ class l2Dataset(Dataset):
         self.variables = variables
 
     def __getitem__(self, idx):
-        x = np.load(self.x_paths[idx])#, mmap_mode='r')
-        y = np.load(self.y_paths[idx])#, mmap_mode='r')
+        x = np.load(self.x_paths[idx], mmap_mode='r')[..., :-1]
+        y = np.load(self.y_paths[idx], mmap_mode='r')
+        x = x.reshape(-1, 96, 144, 108)[0]
+        y = y.reshape(-1, 96, 144, 112)[0]
+        x = x.reshape(-1, 108)
+        y = y.reshape(-1, 112)
+
         if self.variables is not None:
             y = y[:, :self.variables]
         if self.x_scaler is not None:
@@ -22,7 +27,7 @@ class l2Dataset(Dataset):
             y = self.y_scaler.transform(y)
         x = torch.from_numpy(x).float()
         y = torch.from_numpy(y).float()
-        return x, y
+        return x, y, self.x_paths[idx]
 
     def __len__(self):
         return len(self.x_paths)

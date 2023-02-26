@@ -1,6 +1,6 @@
-title: SFNP
+title: test
 
-data_dir: ../../data
+data_dir: ../../CAM5
 log_dir: logs
 
 batch_size: 1
@@ -9,7 +9,7 @@ global_batch_idx: 0
 batch_dropout: 0.1
 
 weight_decay: 0
-decay_steps: 10
+decay_steps: 10000
 decay_rate: 0.9
 
 patience: 200
