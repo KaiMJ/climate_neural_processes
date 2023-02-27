@@ -20,20 +20,14 @@ from lib.dataset import *
 from model import Model
 
 
-# parser = argparse.ArgumentParser()
-# parser.add_argument("seed", type=int, help="seed for random number generator")
-# args = parser.parse_args()
-# seed = args.seed
 
-seed = 0
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else 'cpu')
 
-random.seed(seed)
-np.random.seed(seed)
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 class Supervisor():
 
@@ -165,20 +159,10 @@ class Supervisor():
 
             x = x.reshape(-1, 1, x.shape[-1]).to(device)
             y = y.reshape(-1, 1, y.shape[-1]).to(device)
-            # print("x max: ", torch.max(x), "x min: ", torch.min(x))
-            # print("y max: ", torch.max(y), "y min: ", torch.min(y))
+
             with torch.cuda.amp.autocast():
                 l2_output_mu, l2_output_cov, l2_truth, l2_z_mu_all, \
                     l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(x, y)
-
-                if torch.any(torch.isnan(l2_output_mu)):
-                    print("NAN")
-                    print(self.config)
-                    continue
-                if torch.where(l2_output_cov <=0)[0].shape[0] > 0:
-                    print("STD")
-                    print(self.config)
-                    continue
 
                 nll = nll_loss(l2_output_mu, l2_output_cov, l2_truth)
                 mae = mae_loss(l2_output_mu, l2_truth)
@@ -234,7 +218,7 @@ class Supervisor():
 
         self.logger.info(
             f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}" \
-             + " MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}")
+             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}")
 
         return non_mae_total
 
@@ -283,6 +267,7 @@ class Supervisor():
             self.logger.info("Interrupted")
 
     def hyper_tune(self, max_epochs, hyper_params, hyper_model_params):
+        set_seed(seed)
         self.config.update(hyper_params)
         self.config["model"].update(hyper_model_params)
         self.init_model()
@@ -290,7 +275,7 @@ class Supervisor():
         best_loss = 100000
         self.logger.info("Tuning: " + str(hyper_params) + " " + str(hyper_model_params))
 
-        for e in range(max_epochs):
+        for e in range(max_epochs):           
             self.step(eval=False)
             with torch.no_grad():
                 valid_loss = self.step(eval=True)
@@ -306,9 +291,19 @@ class Supervisor():
                 "loss": best_loss
             }
 
+        torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     tune = True
+
+    seed = 0
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("seed", type=int, help="seed for random number generator")
+    # args = parser.parse_args()
+    # seed = args.seed
+    set_seed(seed)
+
+    device = torch.device("cuda:7" if torch.cuda.is_available() else 'cpu')
 
     supervisor = Supervisor(tune)
 
@@ -317,25 +312,26 @@ if __name__ == "__main__":
 
     # Hyper parameter tuning
     if tune:
-        num_samples = 20
-        max_epochs = 1
-        for i in range(num_samples):
-            hyper_config = {
-                "weight_decay": np.random.uniform(0, 0.1),
-                "lr": qloguniform(-6, -2, 7, 1e-6),
-            }
-            hyper_model_config = {
-                "hidden_layers": np.random.choice([3, 5, 7]),
-                "z_hidden_layers": np.random.choice([3, 5, 7]),
-                "z_hidden_dim": np.random.choice([32, 64, 96, 128]),
-                "z_dim": np.random.choice([32, 64, 96, 128]),
-                "hidden_dim": np.random.choice([32, 64, 96, 128])
-            }
+        num_samples = 30
+        max_epochs = 2
 
-            supervisor.hyper_tune(max_epochs, hyper_config, hyper_model_config)
+        try:
+            for i in range(num_samples):
+                hyper_config = {
+                    "weight_decay": np.random.uniform(0, 0.1),
+                    "lr": qloguniform(-6, -2, 7, 1e-6),
+                }
+                hyper_model_config = {
+                    "hidden_layers": np.random.choice([3, 5, 7]),
+                    "z_hidden_layers": np.random.choice([3, 5, 7]),
+                    "z_hidden_dim": np.random.choice([32, 64, 96, 160]),
+                    "z_dim": np.random.choice([32, 64, 96, 128, 160]),
+                    "hidden_dim": np.random.choice([32, 64, 96, 128, 160])
+                }
 
-        supervisor.logger.info("Best tuning results: " +
-                               str(supervisor.best_results))
+                supervisor.hyper_tune(max_epochs, hyper_config, hyper_model_config)
+        except:
+            supervisor.logger.info("Best tuning results: " + str(supervisor.best_results))
 
     else:
         supervisor.train()

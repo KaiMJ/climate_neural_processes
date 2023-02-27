@@ -43,25 +43,19 @@ class MutliDataset(Dataset):
         
         self.nested = nested
         self.variables = variables
-        self.idxs = np.random.permutation(len(l1_x_paths))
+        self.l1_idxs = np.random.permutation(len(l1_x_paths))
+        self.l2_idxs = self.l1_idxs
         if not nested:
-            self.l2_idx = np.random.permutation(len(l2_x_paths))
+            self.l2_idxs = np.random.permutation(len(l2_x_paths))
 
     def __getitem__(self, idx):
-        l1_idx = self.idxs[idx]
-        if self.nested:
-            l2_idx = l1_idx % len(self.l2_x_paths)
-        else:
-            # pick random l2 idx
-            if len(self.l2_idx) == 0:
-                self.l2_idx = np.random.permutation(len(self.l2_x_paths))
-            l2_idx = self.l2_idx[0]
-            self.l2_idx = self.l2_idx[1:]
+        l1_idx = self.l1_idxs[idx]
+        l2_idx = self.l2_idxs[idx]
 
-        l1_x = np.load(self.l1_x_paths[l1_idx])
-        l1_y = np.load(self.l1_y_paths[l1_idx])
-        l2_x = np.load(self.l2_x_paths[l2_idx])
-        l2_y = np.load(self.l2_y_paths[l2_idx])
+        l1_x = np.load(self.l1_x_paths[l1_idx], mmap_mode='r')
+        l1_y = np.load(self.l1_y_paths[l1_idx], mmap_mode='r')
+        l2_x = np.load(self.l2_x_paths[l2_idx], mmap_mode='r')
+        l2_y = np.load(self.l2_y_paths[l2_idx], mmap_mode='r')
 
         if self.variables is not None:
             l1_y = l1_y[:, :self.variables[0]]

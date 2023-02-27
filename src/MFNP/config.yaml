@@ -1,7 +1,8 @@
-title: 
+title: tune
 
-data_dir: ../../data
+data_dir: /data/allen/climate_data/
 log_dir: logs
+nested: true
 
 batch_size: 1
 lr: 0.0001
@@ -20,10 +21,12 @@ model:
   z_hidden_layers: 4
   z_hidden_dim: 64
   z_dim: 64
-  l1_input_dim: 132
+  l1_input_dim: 108
   l2_input_dim: 108
-  l1_output_dim: 32
+  l1_output_dim: 26
   l2_output_dim: 26
   hidden_dim: 64
   context_percentage_low: 0.2
   context_percentage_high: 0.5
+
+load_checkpoint: false

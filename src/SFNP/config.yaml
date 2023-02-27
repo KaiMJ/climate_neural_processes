@@ -1,14 +1,14 @@
-title: test
+title: SFNP_tuning
 
-data_dir: ../../data/SPCAM5
+data_dir: /data/allen/climate_data/SPCAM5
 log_dir: logs
 
 batch_size: 1
-lr: 0.0001
+lr: 0.0022229999999999997
 global_batch_idx: 0
 batch_dropout: 0.1
 
-weight_decay: 0
+weight_decay: 0.05488135039273248
 decay_steps: 10000
 decay_rate: 0.9
 
@@ -16,14 +16,14 @@ patience: 200
 best_loss: 999999999
 
 model:
-  hidden_layers: 4
-  z_hidden_layers: 4
-  z_hidden_dim: 64
-  z_dim: 64
+  hidden_layers: 5
+  z_hidden_layers: 5
+  z_hidden_dim: 96
+  z_dim: 160
   input_dim: 108
   output_dim: 26
-  hidden_dim: 64
+  hidden_dim: 32
   context_percentage_low: 0.2
   context_percentage_high: 0.5
 
-load_checkpoint: false
+load_checkpoint: False

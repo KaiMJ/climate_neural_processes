@@ -5,8 +5,6 @@ import torch.nn.functional as F
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath("__file__")), '../..'))
 
-device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
-device = torch.device("cpu")
 class MLP_Encoder(nn.Module):
 
     def __init__(self, in_dim, out_dim, hidden_layers=2, hidden_dim=32):

@@ -2,10 +2,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# from torch_geometric.nn.dense import DenseGCNConv
-
-device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
-device = torch.device("cpu")
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -180,8 +176,8 @@ class Model(nn.Module):
         self.encoder_output_dim = self.z_dim
         self.l1_decoder_input_dim = self.z_dim + self.l1_input_dim
         self.l2_decoder_input_dim = self.z_dim + self.l2_input_dim
-        self.l1_num_nodes = config['l1_num_nodes']
-        self.l2_num_nodes = config['l2_num_nodes']
+        self.l1_input_dim = config['l1_input_dim']
+        self.l2_input_dim = config['l2_input_dim']
         self.context_percentage_low = config['context_percentage_low']
         self.context_percentage_high = config['context_percentage_high']
         self.l1_encoder_model = MLP_Encoder(self.l1_input_dim+self.l1_output_dim, self.encoder_output_dim, self.hidden_layers, self.hidden_dim)
@@ -191,7 +187,7 @@ class Model(nn.Module):
 
         self.l1_z_encoder_model = L1_MLP_ZEncoder(self.z_dim, self.z_dim, self.z_hidden_layers, self.z_hidden_dim)
         self.l2_z_encoder_model = L2_MLP_ZEncoder(self.z_dim+self.z_dim, self.z_dim, self.z_hidden_layers, self.z_hidden_dim)
-        self.z2_z1_agg = MLP_Z1Z2_Encoder(self.l1_num_nodes, self.l2_num_nodes)
+        self.z2_z1_agg = MLP_Z1Z2_Encoder(self.l1_input_dim, self.l2_input_dim)
 
 
     def split_context_target(self, x, y, context_percentage_low, context_percentage_high, level):
@@ -200,14 +196,14 @@ class Model(nn.Module):
         n_context = int(x.shape[0]*context_percentage)
         ind = np.arange(x.shape[0])
         mask = np.random.choice(ind, size=n_context, replace=False)
-        # others = np.delete(ind,mask)
+        others = np.delete(ind,mask)
 
-        return x[mask], y[mask], mask
+        return x[mask], y[mask], x[others], y[others], mask
 
 
     def sample_z(self, mean, var, n=1):
         """Reparameterisation trick."""
-        eps = torch.autograd.Variable(var.data.new(n,var.size(0),var.size(1)).normal_()).to(device)
+        eps = torch.autograd.Variable(var.data.new(n,var.size(0),var.size(1)).normal_()).to(mean.device)
 
         std = torch.sqrt(var)
         return torch.unsqueeze(mean, dim=0) + torch.unsqueeze(std, dim=0) * eps
@@ -256,8 +252,8 @@ class Model(nn.Module):
         """
         if l2_y_all is not None:
 
-            l1_x_c, l1_y_c, idxs = self.split_context_target(l1_x_all,l1_y_all, self.context_percentage_low, self.context_percentage_high, level=1)
-            l2_x_c, l2_y_c, idxs = self.split_context_target(l2_x_all,l2_y_all, self.context_percentage_low, self.context_percentage_high, level=2)
+            l1_x_c, l1_y_c, l1_x_t, l1_y_t, idxs = self.split_context_target(l1_x_all,l1_y_all, self.context_percentage_low, self.context_percentage_high, level=1)
+            l2_x_c, l2_y_c, l2_x_t, l2_y_t, idxs = self.split_context_target(l2_x_all,l2_y_all, self.context_percentage_low, self.context_percentage_high, level=2)
 
             #l1_encoder
             l1_r_all = self.xy_to_r(l1_x_all, l1_y_all, level=1)
@@ -270,22 +266,22 @@ class Model(nn.Module):
             #l2_encoder
             l2_r_all = self.xy_to_r(l2_x_all, l2_y_all, level=2)
             l2_r_c = self.xy_to_r(l2_x_c, l2_y_c, level=2)
-            l2_z_mu_all, l2_z_cov_all = self.mean_z_agg(l2_r_all,level=2,z_mu=l2_z_mu_all_0)
-            l2_z_mu_c, l2_z_cov_c = self.mean_z_agg(l2_r_c,level=2,z_mu=l2_z_mu_all_0)
+            l2_z_mu_all, l2_z_cov_all = self.mean_z_agg(l2_r_all,level=2, z_mu=l2_z_mu_all_0)
+            l2_z_mu_c, l2_z_cov_c = self.mean_z_agg(l2_r_c,level=2, z_mu=l2_z_mu_all_0)
 
             #sample z
-            l1_zs = self.sample_z(l1_z_mu_all, l1_z_cov_all, l1_x_all.size(0))
-            l2_zs = self.sample_z(l2_z_mu_all, l2_z_cov_all, l2_x_all.size(0))
+            l1_zs = self.sample_z(l1_z_mu_all, l1_z_cov_all, l1_x_t.size(0))
+            l2_zs = self.sample_z(l2_z_mu_all, l2_z_cov_all, l2_x_t.size(0))
             #l1_decoder, l2_decoder
-            l1_output_mu, l1_output_cov = self.z_to_y(l1_x_all,l1_zs, level=1)
-            l2_output_mu, l2_output_cov = self.z_to_y(l2_x_all,l2_zs, level=2)
+            l1_output_mu, l1_output_cov = self.z_to_y(l1_x_t, l1_zs, level=1)
+            l2_output_mu, l2_output_cov = self.z_to_y(l2_x_t, l2_zs, level=2)
 
             if not return_idxs:
-                return l1_output_mu, l1_output_cov, l2_output_mu, l2_output_cov, \
+                return l1_output_mu, l1_output_cov, l2_output_mu, l2_output_cov, l1_y_t, l2_y_t, \
                     l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c, \
                     l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c
             else:
-                return l1_output_mu, l1_output_cov, l2_output_mu, l2_output_cov, \
+                return l1_output_mu, l1_output_cov, l2_output_mu, l2_output_cov, l1_y_t, l2_y_t, \
                     l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c, \
                     l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c, idxs
             
