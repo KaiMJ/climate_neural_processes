@@ -1,6 +1,6 @@
 title: mfnp_tune
 
-data_dir: /data/allen/climate_data/
+data_dir: /home/mkim/Nserver/climate_processes/data
 log_dir: logs
 nested: true
 
@@ -10,7 +10,7 @@ global_batch_idx: 0
 batch_dropout: 0.1
 
 weight_decay: 0
-decay_steps: 10
+decay_steps: 10000
 decay_rate: 0.9
 
 patience: 200

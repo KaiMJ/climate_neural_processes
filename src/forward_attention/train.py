@@ -283,12 +283,14 @@ class Supervisor():
         self.logger.info("Tuning: " + str(hyper_params) +
                          " " + str(hyper_model_params))
 
+        self.epoch = 0
         for e in range(max_epochs):
             self.step(eval=False)
             with torch.no_grad():
                 valid_loss = self.step(eval=True)
             if valid_loss < best_loss:
                 best_loss = valid_loss
+            self.epoch += 1
         self.logger.info("Tuning loss: " + str(best_loss))
 
         if best_loss < self.tune_best_loss:

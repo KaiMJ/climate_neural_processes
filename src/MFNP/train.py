@@ -20,8 +20,6 @@ from lib.dataset import *
 from model import Model
 
 
-
-
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -287,13 +285,16 @@ class Supervisor():
         best_loss = 100000
         self.logger.info("Tuning: " + str(hyper_params) + " " + str(hyper_model_params))
 
-        for e in range(max_epochs):           
+        self.epoch = 0
+        for e in range(max_epochs):
             self.step(eval=False)
             with torch.no_grad():
                 valid_loss = self.step(eval=True)
             if valid_loss < best_loss:
                 best_loss = valid_loss
+            self.epoch += 1
         self.logger.info("Tuning loss: " + str(best_loss))
+
 
         if best_loss < self.tune_best_loss:
             self.tune_best_loss = best_loss
@@ -314,7 +315,7 @@ if __name__ == "__main__":
     # seed = args.seed
     set_seed(seed)
 
-    device = torch.device("cuda:6" if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 
     supervisor = Supervisor(tune)
 
