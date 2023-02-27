@@ -1,26 +1,23 @@
 import sys
 sys.path.append('..')
 sys.path.append('.')
-from model import Model
-from lib.dataset import *
-from lib.loss import *
-from lib.utils import *
-from tqdm import tqdm
-import torch
-from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import StepLR, CyclicLR
-from torch.utils.tensorboard import SummaryWriter
-
-import numpy as np
-import yaml
-import glob
-import os
-import dill
-import random
-import time
-import torch
 import argparse
+import time
+import random
+import dill
 import os
+import glob
+import yaml
+import numpy as np
+from torch.utils.tensorboard import SummaryWriter
+from torch.optim.lr_scheduler import StepLR, CyclicLR
+from torch.utils.data import DataLoader
+import torch
+from tqdm import tqdm
+from lib.utils import *
+from lib.loss import *
+from lib.dataset import *
+from model import Model
 
 
 # parser = argparse.ArgumentParser()
@@ -44,9 +41,9 @@ class Supervisor():
         self.init_config()
         self.init_dataloader()
         if tune:
-            self.tune()
             self.tune_best_loss = 999999
-        self.init_model()
+        else:
+            self.init_model()
         self.init_checkpoint()
 
     def init_config(self):
@@ -168,10 +165,20 @@ class Supervisor():
 
             x = x.reshape(-1, 1, x.shape[-1]).to(device)
             y = y.reshape(-1, 1, y.shape[-1]).to(device)
-
+            # print("x max: ", torch.max(x), "x min: ", torch.min(x))
+            # print("y max: ", torch.max(y), "y min: ", torch.min(y))
             with torch.cuda.amp.autocast():
                 l2_output_mu, l2_output_cov, l2_truth, l2_z_mu_all, \
                     l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(x, y)
+
+                if torch.any(torch.isnan(l2_output_mu)):
+                    print("NAN")
+                    print(self.config)
+                    continue
+                if torch.where(l2_output_cov <=0)[0].shape[0] > 0:
+                    print("STD")
+                    print(self.config)
+                    continue
 
                 nll = nll_loss(l2_output_mu, l2_output_cov, l2_truth)
                 mae = mae_loss(l2_output_mu, l2_truth)
@@ -212,7 +219,7 @@ class Supervisor():
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(
-                f"MSE: {mse.item():.6f} MAE: {mae.item():.6f} NRMSE: {norm_rmse:.6f}")
+                f"MSE: {mse.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae_total:.6f}")
             if not eval:
                 self.global_batch_idx += 1
 
@@ -226,7 +233,8 @@ class Supervisor():
         total_time = end - start
 
         self.logger.info(
-            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f} MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}")
+            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}" \
+             + " MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}")
 
         return non_mae_total
 
@@ -277,24 +285,27 @@ class Supervisor():
     def hyper_tune(self, max_epochs, hyper_params, hyper_model_params):
         self.config.update(hyper_params)
         self.config["model"].update(hyper_model_params)
-    
+        self.init_model()
+
         best_loss = 100000
+        self.logger.info("Tuning: " + str(hyper_params) + " " + str(hyper_model_params))
+
         for e in range(max_epochs):
             self.step(eval=False)
             with torch.no_grad():
                 valid_loss = self.step(eval=True)
             if valid_loss < best_loss:
                 best_loss = valid_loss
-        self.logger.info("Tuning: " + str(hyper_params) + " " + str(hyper_model_params))
         self.logger.info("Tuning loss: " + str(best_loss))
-        
-        if best_loss <  self.tune_best_loss:
+
+        if best_loss < self.tune_best_loss:
             self.tune_best_loss = best_loss
             self.best_results = {
                 "hyper_params": hyper_params,
                 "hyper_model_params": hyper_model_params,
                 "loss": best_loss
             }
+
 
 if __name__ == "__main__":
     tune = True
@@ -310,8 +321,8 @@ if __name__ == "__main__":
         max_epochs = 1
         for i in range(num_samples):
             hyper_config = {
-                "weight_decay": np.uniform(0, 0.2),
-                "lr": qloguniform(1e-6, 1e-1, 1e-6),
+                "weight_decay": np.random.uniform(0, 0.1),
+                "lr": qloguniform(-6, -2, 7, 1e-6),
             }
             hyper_model_config = {
                 "hidden_layers": np.random.choice([3, 5, 7]),
@@ -323,8 +334,8 @@ if __name__ == "__main__":
 
             supervisor.hyper_tune(max_epochs, hyper_config, hyper_model_config)
 
-        supervisor.logger.info("Best tuning results: " + str(supervisor.best_results))
+        supervisor.logger.info("Best tuning results: " +
+                               str(supervisor.best_results))
 
     else:
         supervisor.train()
-

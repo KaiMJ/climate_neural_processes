@@ -24,7 +24,13 @@ class MLP_Encoder(nn.Module):
 
     def forward(self, x):
         output = self.model(x)
+        debug = x.clone()
+        for i in range(6):
+            debug = self.model[i](debug)
+        # print(debug.mean())
         mean = self.mean_out(output)
+        if torch.any(torch.isnan(mean)):
+            print("NAN in mean")
         return mean
 
 class MLP_ZEncoder(nn.Module):
@@ -168,6 +174,9 @@ class Model(nn.Module):
                 'l2_r_c': l2_r_c,
                 'l2_zs': l2_zs,
             }
+            if torch.any(torch.isnan(l2_output_mu)):
+                print("NAN")
+
             if not return_idxs:
                 return l2_output_mu, l2_output_cov, l2_truth, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c
             if return_idxs:
