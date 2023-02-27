@@ -1,12 +1,7 @@
 .vscode
-!data/scaler
-CAM5/*
-!/data/scaler/*
-!/data/test_data
-*.pt
+data
 runs/
 __pycache__
 .ipynb_checkpoints
 paraview
 logs
-*.log

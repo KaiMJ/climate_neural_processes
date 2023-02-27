@@ -92,13 +92,9 @@ class StandardScaler:
 
 def sort_fn(filename):
     date_string = filename[-14:-4]
-    datetime_object = datetime.datetime.strptime(date_string, "%Y_%m_%d")
+    datetime_object = datetime.datetime.strptime(date_string, "%Y-%m-%d")
     return datetime_object
 
-def sort_batch_fn(filename):
-    date_string = filename[-17:-4]
-    datetime_object = datetime.datetime.strptime(date_string, "%Y_%m_%d-%H")
-    return datetime_object
 
 # Change level for "DEBUG"
 def get_logger(log_dir=".", name="log", level="INFO", log_filename="info.log"):

@@ -1,6 +1,6 @@
 title: test
 
-data_dir: ../../CAM5
+data_dir: ../../data/SPCAM5
 log_dir: logs
 
 batch_size: 1
