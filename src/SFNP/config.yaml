@@ -1,6 +1,6 @@
 title: SFNP_tuned
 
-data_dir: /data/allen/climate_data/SPCAM5
+data_dir: /data/allen/climate_data
 log_dir: logs
 
 batch_size: 1
