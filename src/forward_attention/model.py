@@ -148,7 +148,7 @@ class Block(nn.Module):
         x = x + self.mlp(self.ln_2(x))
         return x
 
-class TransformerDecoder(nn.Module):
+class Model(nn.Module):
 
     def __init__(self, config):
         super().__init__()

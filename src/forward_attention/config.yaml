@@ -1,7 +1,7 @@
-title: baseline_26
+title: transformer_tune
 
-data_dir: ../../data
-log_dir: Transformer_26_log
+data_dir: /home/mkim/Nserver/climate_processes/data
+log_dir: logs
 
 batch_size: 1
 lr: 0.0001
@@ -9,7 +9,7 @@ global_batch_idx: 0
 batch_dropout: 0.1
 
 weight_decay: 0
-decay_steps: 10
+decay_steps: 10000
 decay_rate: 0.9
 
 patience: 200
