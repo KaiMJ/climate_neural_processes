@@ -146,12 +146,12 @@ class MLP_Z1Z2_Encoder(nn.Module):
         # self.cov_m = nn.ELU()
 
     def forward(self, x):
-        x = torch.swapaxes(x, -2, -1)
+        # x = torch.swapaxes(x, -2, -1)
         output = self.model(x)
         mean = self.mean_out(output)
         cov = 0.1+ 0.9*self.cov_m(self.cov_out(output))
-        mean = torch.swapaxes(mean, -2, -1)
-        cov = torch.swapaxes(cov, -2, -1)
+        # mean = torch.swapaxes(mean, -2, -1)
+        # cov = torch.swapaxes(cov, -2, -1)
 
         return mean, cov
 
@@ -187,7 +187,7 @@ class Model(nn.Module):
 
         self.l1_z_encoder_model = L1_MLP_ZEncoder(self.z_dim, self.z_dim, self.z_hidden_layers, self.z_hidden_dim)
         self.l2_z_encoder_model = L2_MLP_ZEncoder(self.z_dim+self.z_dim, self.z_dim, self.z_hidden_layers, self.z_hidden_dim)
-        self.z2_z1_agg = MLP_Z1Z2_Encoder(self.l1_input_dim, self.l2_input_dim)
+        self.z2_z1_agg = MLP_Z1Z2_Encoder(self.z_dim, self.z_dim)
 
 
     def split_context_target(self, x, y, context_percentage_low, context_percentage_high, level):

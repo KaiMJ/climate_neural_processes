@@ -197,8 +197,8 @@ class Supervisor():
             mae = l2_mae.detach()
             mse = mse_loss(l2_output_mu, l2_y_truth, mean=True).detach()
             norm_rmse = norm_rmse_loss(l2_output_mu, l2_y_truth).detach()
-            non_y_pred = self.y_scaler_minmax.inverse_transform(l2_output_mu.unsqueeze(1).detach().cpu().numpy())
-            non_y = self.y_scaler_minmax.inverse_transform(l2_y_truth.unsqueeze(1).detach().cpu().numpy())
+            non_y_pred = self.l2_y_scaler_minmax.inverse_transform(l2_output_mu.unsqueeze(1).detach().cpu().numpy())
+            non_y = self.l2_y_scaler_minmax.inverse_transform(l2_y_truth.unsqueeze(1).detach().cpu().numpy())
             non_mae = mae_metric(non_y_pred, non_y)
 
             mse_total += mse.item()

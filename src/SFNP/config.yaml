@@ -1,14 +1,14 @@
-title: SFNP_tuning
+title: SFNP_tuned
 
 data_dir: /data/allen/climate_data/SPCAM5
 log_dir: logs
 
 batch_size: 1
-lr: 0.0022229999999999997
+lr: 0.0001
 global_batch_idx: 0
 batch_dropout: 0.1
 
-weight_decay: 0.05488135039273248
+weight_decay: 0
 decay_steps: 10000
 decay_rate: 0.9
 
