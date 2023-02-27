@@ -217,9 +217,6 @@ class Model(nn.Module):
         return r_mu
 
     def z_to_y(self, x, zs, level):
-
-        outputs = []
-
         if level == 1:
             output = self.l1_decoder_model(torch.cat([x,zs], dim=-1))
 
@@ -229,7 +226,6 @@ class Model(nn.Module):
         return output
 
     def mean_z_agg(self, r, level, z_mu=None):
-
         if level == 1:
             r_agg = torch.mean(r,dim=0)
             z_mu, z_cov = self.l1_z_encoder_model(r_agg)
