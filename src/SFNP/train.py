@@ -40,9 +40,12 @@ torch.cuda.manual_seed(seed)
 
 class Supervisor():
 
-    def __init__(self):
+    def __init__(self, tune=False):
         self.init_config()
         self.init_dataloader()
+        if tune:
+            self.tune()
+            self.tune_best_loss = 999999
         self.init_model()
         self.init_checkpoint()
 
@@ -271,26 +274,57 @@ class Supervisor():
         except KeyboardInterrupt as e:
             self.logger.info("Interrupted")
 
-    def tune(self, params):
-        pass
+    def hyper_tune(self, max_epochs, hyper_params, hyper_model_params):
+        self.config.update(hyper_params)
+        self.config["model"].update(hyper_model_params)
+    
+        best_loss = 100000
+        for e in range(max_epochs):
+            self.step(eval=False)
+            with torch.no_grad():
+                valid_loss = self.step(eval=True)
+            if valid_loss < best_loss:
+                best_loss = valid_loss
+        self.logger.info("Tuning: " + str(hyper_params) + " " + str(hyper_model_params))
+        self.logger.info("Tuning loss: " + str(best_loss))
+        
+        if best_loss <  self.tune_best_loss:
+            self.tune_best_loss = best_loss
+            self.best_results = {
+                "hyper_params": hyper_params,
+                "hyper_model_params": hyper_model_params,
+                "loss": best_loss
+            }
 
-def lognuniform(low=0, high=1, size=None, base=np.e):
-    return np.power(base, np.random.uniform(low, high, size))
 if __name__ == "__main__":
-    supervisor = Supervisor()
-    supervisor.train()
+    tune = True
+
+    supervisor = Supervisor(tune)
 
     def qloguniform(low, high, base, q):
         return np.power(base, np.random.uniform(low, high)) // q * q
 
-    ray_config = {
-        "weight_decay": np.uniform(0, 0.1),
-        "lr": qloguniform(1e-6, 1e-1, 1e-6),
-    }
-    ray_model_config = {
-        "hidden_layers": tune.choice([3, 5, 7]),
-        "z_hidden_layers": tune.choice([3, 5, 7]),
-        "z_hidden_dim": tune.choice([32, 64, 96, 128]),
-        "z_dim": tune.choice([32, 64, 96, 128]),
-        "hidden_dim": tune.choice([32, 64, 96, 128])
-    }
+    # Hyper parameter tuning
+    if tune:
+        num_samples = 20
+        max_epochs = 1
+        for i in range(num_samples):
+            hyper_config = {
+                "weight_decay": np.uniform(0, 0.2),
+                "lr": qloguniform(1e-6, 1e-1, 1e-6),
+            }
+            hyper_model_config = {
+                "hidden_layers": np.random.choice([3, 5, 7]),
+                "z_hidden_layers": np.random.choice([3, 5, 7]),
+                "z_hidden_dim": np.random.choice([32, 64, 96, 128]),
+                "z_dim": np.random.choice([32, 64, 96, 128]),
+                "hidden_dim": np.random.choice([32, 64, 96, 128])
+            }
+
+            supervisor.hyper_tune(max_epochs, hyper_config, hyper_model_config)
+
+        supervisor.logger.info("Best tuning results: " + str(supervisor.best_results))
+
+    else:
+        supervisor.train()
+
