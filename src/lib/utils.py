@@ -42,14 +42,14 @@ class MinMaxScaler:
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
             out = (data - self.min) / (self.max - self.min)
-            out[np.isinf(out) | np.isnan(out)] = 0
+            out[np.isinf(out) | np.isnan(out) | (out > 1e8)] = 0
             return out
 
     def inverse_transform(self, data):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
             out = data * (self.max - self.min) + self.min
-            out[np.isinf(out) | np.isnan(out)] = 0
+            out[np.isinf(out) | np.isnan(out) | (out > 1e8)] = 0
             return out
 
 class StandardScaler:

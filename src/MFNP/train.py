@@ -1,3 +1,6 @@
+import sys
+sys.path.append('..')
+sys.path.append('.')
 from model import Model
 from lib.dataset import *
 from lib.loss import *
@@ -15,9 +18,6 @@ import dill
 import random
 import time
 import argparse
-import sys
-sys.path.append('..')
-sys.path.append('.')
 
 
 def set_seed(seed):
@@ -105,12 +105,12 @@ class Supervisor():
         split_n = int(365*0.8)
         l2_x_train = l2_x_data[:split_n]
         l2_y_train = l2_y_data[:split_n]
-        l2_x_valid = l2_x_data[split_n:]
-        l2_y_valid = l2_y_data[split_n:]
+        l2_x_valid = l2_x_data[split_n:365]
+        l2_y_valid = l2_y_data[split_n:365]
         l1_x_train = l1_x_data[:split_n]
         l1_y_train = l1_y_data[:split_n]
-        l1_x_valid = l1_x_data[split_n:]
-        l1_y_valid = l1_y_data[split_n:]
+        l1_x_valid = l1_x_data[split_n:365]
+        l1_y_valid = l1_y_data[split_n:365]
 
         l2_x_scaler_minmax = dill.load(
             open(f"../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
@@ -194,6 +194,11 @@ class Supervisor():
                 l1_output_mu, l1_output_cov, l2_output_mu, l2_output_cov, l1_y_truth,\
                     l2_y_truth, l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c, \
                     l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(l1_x, l1_y, l2_x, l2_y)
+
+                if torch.any(torch.isnan(l2_output_mu)):
+                    self.logger.info(
+                        "Prediction returned NAN. Learning rate is too high...")
+                    continue
 
                 l2_nll = nll_loss(l2_output_mu, l2_output_cov, l2_y_truth)
                 l1_nll = nll_loss(l1_output_mu, l1_output_cov, l1_y_truth)

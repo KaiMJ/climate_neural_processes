@@ -1,3 +1,6 @@
+import sys
+sys.path.append('..')
+sys.path.append('.')
 import argparse
 import time
 import random
@@ -15,9 +18,6 @@ from lib.utils import *
 from lib.loss import *
 from lib.dataset import *
 from model import Model
-import sys
-sys.path.append('..')
-sys.path.append('.')
 
 
 def set_seed(seed):
@@ -103,8 +103,8 @@ class Supervisor():
         split_n = int(365*0.8)
         l2_x_train = l2_x_data[:split_n]
         l2_y_train = l2_y_data[:split_n]
-        l2_x_valid = l2_x_data[split_n:]
-        l2_y_valid = l2_y_data[split_n:]
+        l2_x_valid = l2_x_data[split_n:365]
+        l2_y_valid = l2_y_data[split_n:365]
 
         self.x_scaler_minmax = dill.load(
             open(f"../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
