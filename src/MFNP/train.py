@@ -357,7 +357,7 @@ if __name__ == "__main__":
                 with SeedContext(np.random.randint(1000)):
                     hyper_config = {
                         "weight_decay": np.random.uniform(0, 0.1),
-                        "lr": qloguniform(-6, -2, 7, 1e-6),
+                        "lr": qloguniform(-6, -3, 7, 1e-6),
                     }
                     hyper_model_config = {
                         "hidden_layers": np.random.choice([3, 5, 7]),
