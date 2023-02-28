@@ -252,39 +252,33 @@ class Attention(nn.Module):
         return result, attns
     
 
-class LatentModel(nn.Module):
+class Model(nn.Module):
     """
     Latent Model (Attentive Neural Process)
     """
     def __init__(self, config):
-        super(LatentModel, self).__init__()
+        super(Model, self).__init__()
         self.latent_encoder = LatentEncoder(config)
         self.deterministic_encoder = DeterministicEncoder(config)
         self.decoder = Decoder(config)
         
-    def forward(self, context_x, context_y, target_x, all_x=None, all_y=None):
-        """
-            If all_x is None, then it is for generation. [context_x, context_y, target_x]
-            Else, it is for training. [context_x, context_y, target_x, all_x, all_y]
-
-        """
+    def forward(self, context_x, context_y, target_x, target_y=None):
         l2_z_mu_c, l2_z_cov_c, prior_z = self.latent_encoder(context_x, context_y)
 
         # For training
-        if all_x is not None:
-            l2_z_mu_all, l2_z_cov_all, posterior_z = self.latent_encoder(all_x, all_y)
+        if target_y is not None:
+            l2_z_mu_all, l2_z_cov_all, posterior_z = self.latent_encoder(target_x, target_y)
             z = posterior_z
-            target = all_x
+
         # For Generation
         else:
             z = prior_z
-            target = target_x
 
-        z = z.unsqueeze(1).repeat(1, target.size(1), 1) # [B, T_target, H]
-        r = self.deterministic_encoder(context_x, context_y, target) # [B, T_target, H]
-        l2_output_mu, l2_output_cov = self.decoder(r, z, target)
+        z = z.unsqueeze(1).repeat(1, target_x.size(1), 1) # [B, T_target, H]
+        r = self.deterministic_encoder(context_x, context_y, target_x) # [B, T_target, H]
+        l2_output_mu, l2_output_cov = self.decoder(r, z, target_x)
 
-        if all_x is not None:
+        if target_y is not None:
             return l2_output_mu, l2_output_cov, l2_z_mu_c, l2_z_cov_c, l2_z_mu_all, l2_z_cov_all
         else:
             return l2_output_mu, l2_output_cov
