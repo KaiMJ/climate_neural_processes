@@ -1,6 +1,6 @@
 title: SFNP_tuned
 
-data_dir: /data/allen/climate_data
+data_dir: ../../data
 log_dir: logs
 
 batch_size: 1

@@ -26,6 +26,16 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
+class SeedContext:
+    def __init__(self, seed):
+        self.seed = seed
+        self.state = np.random.get_state()
+
+    def __enter__(self):
+        set_seed(self.seed)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        np.random.set_state(self.state)
 
 def split_context_target(x, y, context_percentage_low, context_percentage_high):
     """Helper function to split randomly into context and target"""
@@ -46,7 +56,6 @@ def kl_div(prior_mu, prior_var, posterior_mu, posterior_var):
         torch.exp(prior_var) - 1. + (prior_var - posterior_var)
     kl_div = 0.5 * kl_div.sum()
     return kl_div
-
 
 class Supervisor():
 
@@ -168,13 +177,18 @@ class Supervisor():
             self.model.eval()
 
         for i, (x_, y_) in enumerate(pbar := tqdm(loader, total=len(loader))):
+            rand_idxs = np.random.permutation(np.arange(x_.shape[1] / 144))
+            x_ = x_[:, rand_idxs]
+            y_ = y_[:, rand_idxs]
+
             # mini batch gradients
-            n_mb = 144
+            n_mb = 1
             mae_mb = 0
             mse_mb = 0
             non_mae_mb = 0
             norm_rmse_mb = 0
 
+            # TODO: make mini batches random
             for bg_idx in range(n_mb):
                 x = x_[:, bg_idx::n_mb]
                 y = y_[:, bg_idx::n_mb]
@@ -218,38 +232,38 @@ class Supervisor():
                     l2_truth.unsqueeze(1).detach().cpu().numpy())
                 non_mae = mae_metric(non_y_pred, non_y)
 
-                mse_total += mse.item()
-                mae_total += mae.item()
-                norm_rmse_total += norm_rmse
-                non_mae_total += non_mae.item()
-
                 mae_mb += mae
                 mse_mb += mse
                 non_mae_mb += non_mae
                 norm_rmse_mb += norm_rmse
 
+            mae_mb /= n_mb
+            mse_mb /= n_mb
+            non_mae_mb /= n_mb
+            norm_rmse_mb /= n_mb
+
             if eval is not False:
-                writer.add_scalar("mse", mse_mb.item() /
-                                  n_mb, self.global_batch_idx)
-                writer.add_scalar("mae", mae_mb.item() /
-                                  n_mb, self.global_batch_idx)
-                writer.add_scalar(
-                    "non_mae", non_mae_mb.item() / n_mb, self.global_batch_idx)
-                writer.add_scalar("norm_rmse", norm_rmse_mb /
-                                  n_mb, self.global_batch_idx)
+                writer.add_scalar("mse", mse_mb.item(), self.global_batch_idx)
+                writer.add_scalar("mae", mae_mb.item(), self.global_batch_idx)
+                writer.add_scalar("non_mae", non_mae_mb.item(), self.global_batch_idx)
+                writer.add_scalar("norm_rmse", norm_rmse_mb, self.global_batch_idx)
                 writer.flush()
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
-            pbar.set_postfix_str(
-                f"MSE: {mse.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae_total:.6f}")
+            pbar.set_postfix_str(f"MSE: {mse_mb.item():.6f} MAE: {mae_mb.item():.6f} NON-MAE: {non_mae_mb.item():.6f}")
             if not eval:
                 self.global_batch_idx += 1
 
-        mse_total /= (i+1) * n_mb
-        mae_total /= (i+1) * n_mb
-        non_mae_total /= (i+1) * n_mb
-        norm_rmse_total /= (i+1) * n_mb
-        non_norm_rmse_total /= (i+1) * n_mb
+            mae_total += mae_mb.item()
+            mse_total += mse_mb.item()
+            norm_rmse_total += norm_rmse_mb
+            non_mae_total += non_mae_mb.item()
+
+        mse_total /= (i+1)
+        mae_total /= (i+1)
+        non_mae_total /= (i+1)
+        norm_rmse_total /= (i+1)
+        non_norm_rmse_total /= (i+1)
 
         end = time.time()
         total_time = end - start
@@ -305,34 +319,31 @@ class Supervisor():
             self.logger.info("Interrupted")
 
     def hyper_tune(self, max_epochs, hyper_params, hyper_model_params):
-        set_seed(seed)
         self.config.update(hyper_params)
         self.config["model"].update(hyper_model_params)
-        self.init_model()
+        with SeedContext(seed):
+            self.init_model()
+            best_loss = 100000
+            self.logger.info("Tuning: " + str(hyper_params) +
+                            " " + str(hyper_model_params))
 
-        best_loss = 100000
-        self.logger.info("Tuning: " + str(hyper_params) +
-                         " " + str(hyper_model_params))
+            self.epoch = 0
+            for e in range(max_epochs):
+                self.step(eval=False)
+                with torch.no_grad():
+                    valid_loss = self.step(eval=True)
+                if valid_loss < best_loss:
+                    best_loss = valid_loss
+                self.epoch += 1
+            self.logger.info("Tuning loss: " + str(best_loss))
 
-        self.epoch = 0
-        for e in range(max_epochs):
-            self.step(eval=False)
-            with torch.no_grad():
-                valid_loss = self.step(eval=True)
-            if valid_loss < best_loss:
-                best_loss = valid_loss
-            self.epoch += 1
-        self.logger.info("Tuning loss: " + str(best_loss))
-
-        if best_loss < self.tune_best_loss:
-            self.tune_best_loss = best_loss
-            self.best_results = {
-                "hyper_params": hyper_params,
-                "hyper_model_params": hyper_model_params,
-                "loss": best_loss
-            }
-
-        torch.cuda.empty_cache()
+            if best_loss < self.tune_best_loss:
+                self.tune_best_loss = best_loss
+                self.best_results = {
+                    "hyper_params": hyper_params,
+                    "hyper_model_params": hyper_model_params,
+                    "loss": best_loss
+                }
 
 
 if __name__ == "__main__":
@@ -357,32 +368,28 @@ if __name__ == "__main__":
         num_samples = 30
         max_epochs = 2
 
-        # try:
-        for i in range(num_samples):
-            hyper_config = {
-                "weight_decay": np.random.uniform(0, 0.1),
-                "lr": qloguniform(-6, -2, 7, 1e-6),
-            }
-            hyper_model_config = {
-                # "num_heads": int(np.random.choice([4, 8, 16])),
-                "num_heads": 16,
-                # "attention_layers": np.random.choice([4, 8, 12]),
-                "attention_layers": 12,
-                # "n_embd": int(np.random.choice([32, 48, 64, 96, 128])),
-                "n_embd": 128,
-                # "hidden_dim": np.random.choice([32, 64, 96, 128, 160]),
-                "hidden_dim": 160,
-                "dropout": np.random.uniform(0, 0.4),
-            }
-
-            supervisor.hyper_tune(
-                max_epochs, hyper_config, hyper_model_config)
-        # except Exception as e:
-        #     print(e)
-
-        # finally:
-        #     supervisor.logger.info(
-        #         "Best tuning results: " + str(supervisor.best_results))
+        try:
+            for i in range(num_samples):
+                hyper_config = {
+                    "weight_decay": np.random.uniform(0, 0.1),
+                    "lr": qloguniform(-6, -2, 7, 1e-6),
+                }
+                hyper_model_config = {
+                    # "num_heads": int(np.random.choice([4, 8, 16])),
+                    "num_heads": 16,
+                    # "attention_layers": np.random.choice([4, 8, 12]),
+                    "attention_layers": 12,
+                    # "n_embd": int(np.random.choice([32, 48, 64, 96, 128])),
+                    "n_embd": 128,
+                    # "hidden_dim": np.random.choice([32, 64, 96, 128, 160]),
+                    "hidden_dim": 160,
+                    "dropout": np.random.uniform(0, 0.4),
+                }
+                supervisor.hyper_tune(max_epochs, hyper_config, hyper_model_config)
+        except Exception as e:
+            print(e)
+        finally:
+            supervisor.logger.info("Best tuning results: " + str(supervisor.best_results))
 
     else:
         supervisor.train()

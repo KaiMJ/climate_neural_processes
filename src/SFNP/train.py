@@ -19,15 +19,22 @@ from lib.loss import *
 from lib.dataset import *
 from model import Model
 
-
-
-
-
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+class SeedContext:
+    def __init__(self, seed):
+        self.seed = seed
+        self.state = np.random.get_state()
+
+    def __enter__(self):
+        set_seed(self.seed)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        np.random.set_state(self.state)
 
 class Supervisor():
 
@@ -195,10 +202,8 @@ class Supervisor():
             if eval is not False:
                 writer.add_scalar("mse", mse.item(), self.global_batch_idx)
                 writer.add_scalar("mae", mae.item(), self.global_batch_idx)
-                writer.add_scalar("norm_rmse", norm_rmse,
-                                  self.global_batch_idx)
-                writer.add_scalar("non_mae", non_mae.item(),
-                                  self.global_batch_idx)
+                writer.add_scalar("norm_rmse", norm_rmse, self.global_batch_idx)
+                writer.add_scalar("non_mae", non_mae.item(), self.global_batch_idx)
                 writer.flush()
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
@@ -267,34 +272,31 @@ class Supervisor():
             self.logger.info("Interrupted")
 
     def hyper_tune(self, max_epochs, hyper_params, hyper_model_params):
-        set_seed(seed)
         self.config.update(hyper_params)
         self.config["model"].update(hyper_model_params)
-        self.init_model()
 
-        best_loss = 100000
-        self.logger.info("Tuning: " + str(hyper_params) + " " + str(hyper_model_params))
+        with SeedContext(seed):
+            self.init_model()
+            best_loss = 100000
+            self.logger.info("Tuning: " + str(hyper_params) + " " + str(hyper_model_params))
 
-        self.epoch = 0
-        for e in range(max_epochs):
-            self.step(eval=False)
-            with torch.no_grad():
-                valid_loss = self.step(eval=True)
-            if valid_loss < best_loss:
-                best_loss = valid_loss
-            self.epoch += 1
-        self.logger.info("Tuning loss: " + str(best_loss))
+            self.epoch = 0
+            for e in range(max_epochs):
+                self.step(eval=False)
+                with torch.no_grad():
+                    valid_loss = self.step(eval=True)
+                if valid_loss < best_loss:
+                    best_loss = valid_loss
+                self.epoch += 1
+            self.logger.info("Tuning loss: " + str(best_loss))
 
-
-        if best_loss < self.tune_best_loss:
-            self.tune_best_loss = best_loss
-            self.best_results = {
-                "hyper_params": hyper_params,
-                "hyper_model_params": hyper_model_params,
-                "loss": best_loss
-            }
-
-        torch.cuda.empty_cache()
+            if best_loss < self.tune_best_loss:
+                self.tune_best_loss = best_loss
+                self.best_results = {
+                    "hyper_params": hyper_params,
+                    "hyper_model_params": hyper_model_params,
+                    "loss": best_loss
+                }
 
 if __name__ == "__main__":
     tune = True
@@ -306,7 +308,7 @@ if __name__ == "__main__":
     # seed = args.seed
     set_seed(seed)
 
-    device = torch.device("cuda:7" if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 
     supervisor = Supervisor(tune)
 
@@ -331,10 +333,10 @@ if __name__ == "__main__":
                     "z_dim": np.random.choice([32, 64, 96, 128, 160]),
                     "hidden_dim": np.random.choice([32, 64, 96, 128, 160])
                 }
-
                 supervisor.hyper_tune(max_epochs, hyper_config, hyper_model_config)
-        except:
+        except Exception as e:
+            print(e)
+        finally:
             supervisor.logger.info("Best tuning results: " + str(supervisor.best_results))
-
     else:
         supervisor.train()

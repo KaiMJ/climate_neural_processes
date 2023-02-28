@@ -1,6 +1,6 @@
-title: baseline_26
+title: sfattn_tune
 
-data_dir: /data/allen/climate_data
+data_dir: /home/mkim/Nserver/climate_processes/data
 log_dir: logs
 
 batch_size: 1
@@ -33,4 +33,4 @@ model:
   context_percentage_low: 0.2
   context_percentage_high: 0.5
 
-load_checkpoint: baseline_26_seed0_lr0.0005_bs_1_Tue Feb 14 10:53:09 2023
+load_checkpoint: False

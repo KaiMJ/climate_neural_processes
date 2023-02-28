@@ -1,23 +1,23 @@
+from model import Model
+from lib.dataset import *
+from lib.loss import *
+from lib.utils import *
+from tqdm import tqdm
+import torch
+from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import StepLR, CyclicLR
+from torch.utils.tensorboard import SummaryWriter
+import numpy as np
+import yaml
+import glob
+import os
+import dill
+import random
+import time
+import argparse
 import sys
 sys.path.append('..')
 sys.path.append('.')
-import argparse
-import time
-import random
-import dill
-import os
-import glob
-import yaml
-import numpy as np
-from torch.utils.tensorboard import SummaryWriter
-from torch.optim.lr_scheduler import StepLR, CyclicLR
-from torch.utils.data import DataLoader
-import torch
-from tqdm import tqdm
-from lib.utils import *
-from lib.loss import *
-from lib.dataset import *
-from model import Model
 
 
 def set_seed(seed):
@@ -25,6 +25,17 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+class SeedContext:
+    def __init__(self, seed):
+        self.seed = seed
+        self.state = np.random.get_state()
+
+    def __enter__(self):
+        set_seed(self.seed)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        np.random.set_state(self.state)
 
 class Supervisor():
 
@@ -81,11 +92,15 @@ class Supervisor():
 
     def init_dataloader(self):
         # Train and validation data split
-        # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004   
-        l2_x_data = sorted(glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
-        l2_y_data = sorted(glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
-        l1_x_data = sorted(glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
-        l1_y_data = sorted(glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
+        # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004
+        l2_x_data = sorted(
+            glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
+        l2_y_data = sorted(
+            glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
+        l1_x_data = sorted(
+            glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
+        l1_y_data = sorted(
+            glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
 
         split_n = int(365*0.8)
         l2_x_train = l2_x_data[:split_n]
@@ -97,28 +112,33 @@ class Supervisor():
         l1_x_valid = l1_x_data[split_n:]
         l1_y_valid = l1_y_data[split_n:]
 
-        l2_x_scaler_minmax = dill.load(open(f"../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
-        l2_y_scaler_minmax = dill.load(open(f"../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
-        l1_x_scaler_minmax = dill.load(open(f"../../scalers/x_CAM5_minmax_scaler.dill", 'rb'))
-        l1_y_scaler_minmax = dill.load(open(f"../../scalers/y_CAM5_minmax_scaler.dill", 'rb'))
-
+        l2_x_scaler_minmax = dill.load(
+            open(f"../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
+        l2_y_scaler_minmax = dill.load(
+            open(f"../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
+        l1_x_scaler_minmax = dill.load(
+            open(f"../../scalers/x_CAM5_minmax_scaler.dill", 'rb'))
+        l1_y_scaler_minmax = dill.load(
+            open(f"../../scalers/y_CAM5_minmax_scaler.dill", 'rb'))
 
         # Change to first 26 variables
         l2_y_scaler_minmax.min = l2_y_scaler_minmax.min[:26]
         l2_y_scaler_minmax.max = l2_y_scaler_minmax.max[:26]
         l1_y_scaler_minmax.min = l1_y_scaler_minmax.min[:26]
-        l1_y_scaler_minmax.max = l1_y_scaler_minmax.max[:26]        
+        l1_y_scaler_minmax.max = l1_y_scaler_minmax.max[:26]
 
-        train_dataset = MutliDataset(l1_x_train, l1_y_train, l2_x_train, l2_y_train, 
-                                l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=l1_y_scaler_minmax, 
-                                l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, nested=self.config['nested'], variables=[26, 26])
-        self.train_loader = DataLoader(train_dataset, self.config['batch_size'], shuffle=True, drop_last=False, num_workers=0, pin_memory=True)
+        train_dataset = MutliDataset(l1_x_train, l1_y_train, l2_x_train, l2_y_train,
+                                     l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=l1_y_scaler_minmax,
+                                     l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, nested=self.config['nested'], variables=[26, 26])
+        self.train_loader = DataLoader(
+            train_dataset, self.config['batch_size'], shuffle=True, drop_last=False, num_workers=0, pin_memory=True)
 
-        val_dataset = MutliDataset(l1_x_valid, l1_y_valid, l2_x_valid, l2_y_valid, 
-                                l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=l1_y_scaler_minmax, 
-                                l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, nested=self.config['nested'], variables=[26, 26])
-        self.val_loader = DataLoader(val_dataset, self.config['batch_size'], shuffle=False, drop_last=False, num_workers=0, pin_memory=True)
-        
+        val_dataset = MutliDataset(l1_x_valid, l1_y_valid, l2_x_valid, l2_y_valid,
+                                   l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=l1_y_scaler_minmax,
+                                   l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, nested=self.config['nested'], variables=[26, 26])
+        self.val_loader = DataLoader(
+            val_dataset, self.config['batch_size'], shuffle=False, drop_last=False, num_workers=0, pin_memory=True)
+
         self.l2_y_scaler_minmax = l2_y_scaler_minmax
 
     def init_model(self):
@@ -173,14 +193,17 @@ class Supervisor():
             with torch.cuda.amp.autocast():
                 l1_output_mu, l1_output_cov, l2_output_mu, l2_output_cov, l1_y_truth, l2_y_truth, \
                     l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c, \
-                    l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(l1_x, l1_y, l2_x, l2_y)
+                    l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(
+                        l1_x, l1_y, l2_x, l2_y)
 
                 l2_nll = nll_loss(l2_output_mu, l2_output_cov, l2_y_truth)
                 l1_nll = nll_loss(l1_output_mu, l1_output_cov, l1_y_truth)
                 l2_mae = mae_loss(l2_output_mu, l2_y_truth)
                 l1_mae = mae_loss(l1_output_mu, l1_y_truth)
-                l2_kld = kld_gaussian_loss(l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c)
-                l1_kld = kld_gaussian_loss(l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c)
+                l2_kld = kld_gaussian_loss(
+                    l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c)
+                l1_kld = kld_gaussian_loss(
+                    l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c)
 
                 loss = l2_nll + l1_nll + l2_mae + l1_mae + l2_kld + l1_kld
 
@@ -195,8 +218,10 @@ class Supervisor():
             mae = l2_mae.detach()
             mse = mse_loss(l2_output_mu, l2_y_truth, mean=True).detach()
             norm_rmse = norm_rmse_loss(l2_output_mu, l2_y_truth).detach()
-            non_y_pred = self.l2_y_scaler_minmax.inverse_transform(l2_output_mu.unsqueeze(1).detach().cpu().numpy())
-            non_y = self.l2_y_scaler_minmax.inverse_transform(l2_y_truth.unsqueeze(1).detach().cpu().numpy())
+            non_y_pred = self.l2_y_scaler_minmax.inverse_transform(
+                l2_output_mu.unsqueeze(1).detach().cpu().numpy())
+            non_y = self.l2_y_scaler_minmax.inverse_transform(
+                l2_y_truth.unsqueeze(1).detach().cpu().numpy())
             non_mae = mae_metric(non_y_pred, non_y)
 
             mse_total += mse.item()
@@ -209,11 +234,13 @@ class Supervisor():
                 writer.add_scalar("mae", mae.item(), self.global_batch_idx)
                 writer.add_scalar("norm_rmse", norm_rmse,
                                   self.global_batch_idx)
-                writer.add_scalar("non_mae", non_mae.item(), self.global_batch_idx)
+                writer.add_scalar("non_mae", non_mae.item(),
+                                  self.global_batch_idx)
                 writer.flush()
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
-            pbar.set_postfix_str(f"MSE: {mse.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae_total:.6f}")
+            pbar.set_postfix_str(
+                f"MSE: {mse.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae_total:.6f}")
             if not eval:
                 self.global_batch_idx += 1
 
@@ -227,8 +254,8 @@ class Supervisor():
         total_time = end - start
 
         self.logger.info(
-            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}" \
-             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}")
+            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}"
+            + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}")
 
         return non_mae_total
 
@@ -277,37 +304,36 @@ class Supervisor():
             self.logger.info("Interrupted")
 
     def hyper_tune(self, max_epochs, hyper_params, hyper_model_params):
-        set_seed(seed)
         self.config.update(hyper_params)
         self.config["model"].update(hyper_model_params)
-        self.init_model()
+        with SeedContext(seed):
+            self.init_model()
 
-        best_loss = 100000
-        self.logger.info("Tuning: " + str(hyper_params) + " " + str(hyper_model_params))
+            best_loss = 100000
+            self.logger.info("Tuning: " + str(hyper_params) + " " + str(hyper_model_params))
 
-        self.epoch = 0
-        for e in range(max_epochs):
-            self.step(eval=False)
-            with torch.no_grad():
-                valid_loss = self.step(eval=True)
-            if valid_loss < best_loss:
-                best_loss = valid_loss
-            self.epoch += 1
-        self.logger.info("Tuning loss: " + str(best_loss))
+            self.epoch = 0
+            for e in range(max_epochs):
+                self.step(eval=False)
+                with torch.no_grad():
+                    valid_loss = self.step(eval=True)
+                if valid_loss < best_loss:
+                    best_loss = valid_loss
+                self.epoch += 1
+            self.logger.info("Tuning loss: " + str(best_loss))
 
+            if best_loss < self.tune_best_loss:
+                self.tune_best_loss = best_loss
+                self.best_results = {
+                    "hyper_params": hyper_params,
+                    "hyper_model_params": hyper_model_params,
+                    "loss": best_loss
+                }
 
-        if best_loss < self.tune_best_loss:
-            self.tune_best_loss = best_loss
-            self.best_results = {
-                "hyper_params": hyper_params,
-                "hyper_model_params": hyper_model_params,
-                "loss": best_loss
-            }
-
-        torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     tune = True
+
     seed = 0
     # parser = argparse.ArgumentParser()
     # parser.add_argument("seed", type=int, help="seed for random number generator")
@@ -340,10 +366,10 @@ if __name__ == "__main__":
                     "z_dim": np.random.choice([32, 64, 96, 128, 160]),
                     "hidden_dim": np.random.choice([32, 64, 96, 128, 160])
                 }
-
                 supervisor.hyper_tune(max_epochs, hyper_config, hyper_model_config)
-        except:
+        except Exception as e:
+            print(e)
+        finally:
             supervisor.logger.info("Best tuning results: " + str(supervisor.best_results))
-
     else:
         supervisor.train()
