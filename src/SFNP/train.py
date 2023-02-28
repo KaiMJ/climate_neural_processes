@@ -1,4 +1,7 @@
-from model import Model
+import sys
+sys.path.append('..')
+sys.path.append('.')
+from .model import Model
 from lib.dataset import *
 from lib.loss import *
 from lib.utils import *
@@ -15,9 +18,6 @@ import dill
 import random
 import time
 import argparse
-import sys
-sys.path.append('..')
-sys.path.append('.')
 
 
 def set_seed(seed):
@@ -181,8 +181,7 @@ class Supervisor():
 
                 nll = nll_loss(l2_output_mu, l2_output_cov, l2_truth)
                 mae = mae_loss(l2_output_mu, l2_truth)
-                kld = kld_gaussian_loss(
-                    l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c)
+                kld = kld_gaussian_loss(l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c)
 
                 loss = nll + mae + kld
 

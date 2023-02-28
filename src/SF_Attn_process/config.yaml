@@ -1,10 +1,10 @@
-title: sfattn_tune
+title: sfattn_train
 
 data_dir: /home/mkim/Nserver/climate_processes/data
 log_dir: logs
 
 batch_size: 1
-lr: 0.0005
+lr: 0.000139
 global_batch_idx: 0
 batch_dropout: 0.5
 variables: 26
@@ -12,8 +12,8 @@ variables: 26
 base_lr: 0.0001
 max_lr: 0.01
 optim: adam
-weight_decay: 0.01
-decay_steps: 10000
+weight_decay: 0.06818202991034834
+decay_steps: 5
 decay_rate: 1
 gamma: 1
 
@@ -24,13 +24,14 @@ model:
   l2_input_dim: 108
   l2_output_dim: 26
 
-  num_heads: 8
-  dropout: 0.2
-  attention_layers: 3
-  hidden_dim: 64
+  num_heads: 16
+  dropout: 0.1748127815197366
+  attention_layers: 12
+  hidden_dim: 160
   hidden_layers: 3
 
   context_percentage_low: 0.2
   context_percentage_high: 0.5
 
 load_checkpoint: False
+

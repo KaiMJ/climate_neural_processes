@@ -243,7 +243,8 @@ class Supervisor():
 
         self.logger.info(
             f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}"
-            + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}")
+            + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}" +
+            + f"LR: {self.scheduler.get_last_lr()[0]:6f}")
 
         return non_mae_total
 
@@ -321,7 +322,7 @@ class Supervisor():
 
 
 if __name__ == "__main__":
-    tune = True
+    tune = False
 
     seed = 0
     # parser = argparse.ArgumentParser()

@@ -1,23 +1,23 @@
-import argparse
-import time
-import random
-import dill
-import os
-import glob
-import yaml
-import numpy as np
-from torch.utils.tensorboard import SummaryWriter
-from torch.optim.lr_scheduler import StepLR, CyclicLR
-from torch.utils.data import DataLoader
-import torch
-from tqdm import tqdm
-from lib.utils import *
-from lib.loss import *
-from lib.dataset import *
-from model import Model
 import sys
 sys.path.append('..')
 sys.path.append('.')
+from model import Model
+from lib.dataset import *
+from lib.loss import *
+from lib.utils import *
+from tqdm import tqdm
+import torch
+from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import StepLR, CyclicLR
+from torch.utils.tensorboard import SummaryWriter
+import numpy as np
+import yaml
+import glob
+import os
+import dill
+import random
+import time
+import argparse
 
 
 def set_seed(seed):
@@ -282,8 +282,10 @@ class Supervisor():
         end = time.time()
         total_time = end - start
 
-        self.logger.info(f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}"
-                         + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}")
+        self.logger.info(
+            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}"
+            + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}"
+            + f"LR: {self.scheduler.get_last_lr()[0]:6f}")
 
         return non_mae_total
 
@@ -360,7 +362,7 @@ class Supervisor():
 
 
 if __name__ == "__main__":
-    tune = True
+    tune = False
 
     seed = 0
     # parser = argparse.ArgumentParser()
