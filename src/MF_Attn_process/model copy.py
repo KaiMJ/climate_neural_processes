@@ -27,14 +27,10 @@ class LatentEncoder(nn.Module):
     """
     Latent Encoder [For prior, posterior]
     """
-    def __init__(self, config, level):
+    def __init__(self, config):
         super(LatentEncoder, self).__init__()
-        if level == 1:
-            input_dim = config['l1_input_dim']
-            output_dim = config['l1_output_dim']
-        if level == 2:
-            input_dim = config['l2_input_dim']
-            output_dim = config['l2_output_dim']
+        input_dim = config['l2_input_dim']
+        output_dim = config['l2_output_dim']
         hidden_dim = config['hidden_dim']
 
         attention_layers = config['attention_layers']
@@ -78,14 +74,10 @@ class DeterministicEncoder(nn.Module):
     """
     Deterministic Encoder [r]
     """
-    def __init__(self, config, level):
+    def __init__(self, config):
         super(DeterministicEncoder, self).__init__()
-        if level == 1:
-            input_dim = config['l1_input_dim']
-            output_dim = config['l1_output_dim']
-        if level == 2:
-            input_dim = config['l2_input_dim']
-            output_dim = config['l2_output_dim']
+        input_dim = config['l2_input_dim']
+        output_dim = config['l2_output_dim']
         hidden_dim = config['hidden_dim']
         attention_layers = config['attention_layers']
 
@@ -104,6 +96,7 @@ class DeterministicEncoder(nn.Module):
         encoder_input = self.input_projection(encoder_input)
         encoder_input = self.layer_norm(encoder_input)
 
+
         # self attention layer
         for attention in self.self_attentions:
             encoder_input, _ = attention(encoder_input, encoder_input, encoder_input)
@@ -115,6 +108,7 @@ class DeterministicEncoder(nn.Module):
         # cross attention layer
         for attention in self.cross_attentions:
             query, _ = attention(keys, encoder_input, query)
+
         
         return query
     
@@ -122,25 +116,21 @@ class Decoder(nn.Module):
     """
     Decoder for generation 
     """
-    def __init__(self, config, level):
+    def __init__(self, config):
         num_hidden = config['hidden_dim']
-        if level == 1:
-            input_dim = config['l1_input_dim']
-            output_dim = config['l1_output_dim']
-        if level == 2:
-            input_dim = config['l2_input_dim']
-            output_dim = config['l2_output_dim']
-        decoder_layers = config['decoder_layers']
+        input_dim = config['l2_input_dim']
+        output_dim = config['l2_output_dim']
+        hidden_layers = config['hidden_layers']
         attention_layers = config['attention_layers']
 
         super(Decoder, self).__init__()
         self.target_projection = Linear(input_dim, num_hidden)
-        self.linears = nn.ModuleList([Linear(num_hidden * 3, num_hidden * 3, w_init='relu') for _ in range(decoder_layers)])
-        self.final_projection = Linear(num_hidden * 3, num_hidden)
-        # self.layer_norm = nn.LayerNorm(num_hidden)
+        self.linears = nn.ModuleList([Linear(num_hidden * 3, num_hidden * 3, w_init='relu') for _ in range(hidden_layers-1)])
+        self.hidden_projection = Linear(num_hidden * 3, num_hidden)
+        # self.layer_norm = nn.LayerNorm(num_hidden * 3)
         self.self_attentions = nn.ModuleList([Attention(config) for _ in range(attention_layers)])
-        self.mean_out = nn.Linear(num_hidden * 3, output_dim)
-        self.cov_out = nn.Linear(num_hidden * 3, output_dim)
+        self.mean_out = nn.Linear(num_hidden, output_dim)
+        self.cov_out = nn.Linear(num_hidden, output_dim)
         self.cov_m = nn.Softplus()
 
     def forward(self, r, z, target_x):
@@ -154,6 +144,7 @@ class Decoder(nn.Module):
         # mlp layers
         for linear in self.linears:
             hidden = t.relu(linear(hidden))
+        hidden = self.hidden_projection(hidden)
 
         # self attention layer
         for attention in self.self_attentions:
@@ -259,118 +250,35 @@ class Attention(nn.Module):
         result = self.layer_norm(result)
 
         return result, attns
-
-class L1_MLP_ZEncoder(nn.Module):
-    """Takes an r representation and produces the mean & variance of the 
-    normally distributed function encoding, z."""
-    def __init__(self, 
-            in_dim, 
-            out_dim,
-            hidden_layers=2,
-            hidden_dim=32):
-
-        nn.Module.__init__(self)
-
-        layers = [nn.Linear(in_dim, hidden_dim), nn.ELU()]
-        for _ in range(hidden_layers - 1):
-            # layers.append(nn.LayerNorm(hidden_dim))
-            layers += [nn.Linear(hidden_dim, hidden_dim), nn.ELU()]
-        # layers.append(nn.BatchNorm1d(hidden_dim))
-        layers.append(nn.Linear(hidden_dim, hidden_dim))
-
-        self.model = nn.Sequential(*layers)
-        self.mean_out = nn.Linear(hidden_dim, out_dim)
-        self.cov_out = nn.Linear(hidden_dim, out_dim)
-        self.cov_m = nn.Sigmoid()
-
-
-    def forward(self, inputs):
-        output = self.model(inputs)
-        mean = self.mean_out(output)
-        cov = 0.1+0.9*self.cov_m(self.cov_out(output))
-
-        return mean, cov
-
-class L2_MLP_ZEncoder(nn.Module):
-    """Takes an r representation and produces the mean & variance of the 
-    normally distributed function encoding, z."""
-    def __init__(self, 
-            in_dim, 
-            out_dim,
-            hidden_layers=2,
-            hidden_dim=32):
-
-        nn.Module.__init__(self)
-
-        layers = [nn.Linear(in_dim, hidden_dim), nn.ELU()]
-        for _ in range(hidden_layers - 1):
-            # layers.append(nn.LayerNorm(hidden_dim))
-            layers += [nn.Linear(hidden_dim, hidden_dim), nn.ELU()]
-        # layers.append(nn.BatchNorm1d(hidden_dim))
-        layers.append(nn.Linear(hidden_dim, hidden_dim))
-
-        self.model = nn.Sequential(*layers)
-        self.mean_out = nn.Linear(hidden_dim, out_dim)
-        self.cov_out = nn.Linear(hidden_dim, out_dim)
-        self.cov_m = nn.Sigmoid()
-
-
-    def forward(self, inputs, z):
-        inputs = t.cat([inputs, z], dim=-1)
-        output = self.model(inputs)
-        mean = self.mean_out(output)
-        cov = 0.1+0.9*self.cov_m(self.cov_out(output))
-
-        return mean, cov
     
 
-class MultiLatentModel(nn.Module):
+class Model(nn.Module):
     """
     Latent Model (Attentive Neural Process)
     """
     def __init__(self, config):
-        super(MultiLatentModel, self).__init__()
-        self.l1_latent_encoder = LatentEncoder(config, level=1)
-        self.l2_latent_encoder = LatentEncoder(config, level=2)
-        self.l1_deterministic_encoder = DeterministicEncoder(config, level=1)
-        self.l2_deterministic_encoder = DeterministicEncoder(config, level=2)
-        self.l1_decoder = Decoder(config, level=1)
-        self.l2_decoder = Decoder(config, level=2)
-
-        # self.l1_z_encoder = L1_MLP_ZEncoder()
-        # self.l2_z_encoder = L2_MLP_ZEncoder()
-
-        self.l1_z_l2_z = Linear(config['hidden_dim'], config['hidden_dim'])
+        super(Model, self).__init__()
+        self.latent_encoder = LatentEncoder(config)
+        self.deterministic_encoder = DeterministicEncoder(config)
+        self.decoder = Decoder(config)
         
-    def forward(self, l1_x_context, l1_y_context, l1_x_target, l2_x_context, l2_y_context, l2_x_target, \
-                    l1_y_target=None, l2_y_target=None):
-        l1_z_mu_c, l1_z_cov_c, l1_prior_z = self.l1_latent_encoder(l1_x_context, l1_y_context)
-        l2_z_mu_c, l2_z_cov_c, l2_prior_z = self.l2_latent_encoder(l2_x_context, l2_y_context)
+    def forward(self, context_x, context_y, target_x, target_y=None):
+        l2_z_mu_c, l2_z_cov_c, prior_z = self.latent_encoder(context_x, context_y)
 
         # For training
-        if l1_y_target is not None:
-            l1_z_mu_all, l1_z_cov_all, l1_posterior_z = self.l1_latent_encoder(l1_x_target, l1_y_target)
-            l2_z_mu_all, l2_z_cov_all, l2_posterior_z = self.l2_latent_encoder(l2_x_target, l2_y_target)
-            
-            l1_z = l1_posterior_z
-            l2_z = l2_posterior_z
+        if target_y is not None:
+            l2_z_mu_all, l2_z_cov_all, posterior_z = self.latent_encoder(target_x, target_y)
+            z = posterior_z
+
         # For Generation
         else:
-            l1_z = l1_prior_z
-            l2_z = l2_prior_z
+            z = prior_z
 
-        l1_z = l1_z.unsqueeze(1).repeat(1, l1_target.size(1), 1) # [B, T_target, H]
-        l1_r = self.l1_deterministic_encoder(l1_x_context, l1_y_context, l1_target) # [B, T_target, H]
-        l1_output_mu, l1_output_cov = self.l1_decoder(l1_r, l1_z, l1_target)
+        z = z.unsqueeze(1).repeat(1, target_x.size(1), 1) # [B, T_target, H]
+        r = self.deterministic_encoder(context_x, context_y, target_x) # [B, T_target, H]
+        l2_output_mu, l2_output_cov = self.decoder(r, z, target_x)
 
-        l2_z = l2_z.unsqueeze(1).repeat(1, l2_target.size(1), 1) # [B, T_target, H]
-        l2_r = self.l2_deterministic_encoder(l2_x_context, l2_y_context, l2_target) # [B, T_target, H]
-        
-        l2_latent = self.l1_z_l2_z(l1_z, l1_r)
-
-
-        return None
-        if all_x is not None:
+        if target_y is not None:
             return l2_output_mu, l2_output_cov, l2_z_mu_c, l2_z_cov_c, l2_z_mu_all, l2_z_cov_all
         else:
             return l2_output_mu, l2_output_cov

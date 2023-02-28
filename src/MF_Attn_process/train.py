@@ -58,7 +58,8 @@ def step(model, optim, scheduler, loader, writer, logger, eval=False):
     else:
         model.eval()
 
-    for i, (l1_x, l1_y, l2_x, l2_y) in enumerate(pbar:= tqdm(loader, total=len(loader))):       
+    for i, (l1_x, l1_y, l2_x, l2_y) in enumerate(pbar:= tqdm(loader, total=len(loader))):
+        
         l1_x = l1_x[:, ::2].to(device)
         l1_y = l1_y[:, ::2].to(device)
         l2_x = l2_x[:, ::2].to(device)

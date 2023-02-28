@@ -1,29 +1,31 @@
+from model import Model
+from lib.dataset import *
+from lib.loss import *
+from lib.utils import *
+from tqdm import tqdm
+import torch
+from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import StepLR, CyclicLR
+from torch.utils.tensorboard import SummaryWriter
+import numpy as np
+import yaml
+import glob
+import os
+import dill
+import random
+import time
+import argparse
 import sys
 sys.path.append('..')
 sys.path.append('.')
-import argparse
-import time
-import random
-import dill
-import os
-import glob
-import yaml
-import numpy as np
-from torch.utils.tensorboard import SummaryWriter
-from torch.optim.lr_scheduler import StepLR, CyclicLR
-from torch.utils.data import DataLoader
-import torch
-from tqdm import tqdm
-from lib.utils import *
-from lib.loss import *
-from lib.dataset import *
-from model import Model
+
 
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
 
 class SeedContext:
     def __init__(self, seed):
@@ -35,6 +37,7 @@ class SeedContext:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         np.random.set_state(self.state)
+
 
 class Supervisor():
 
@@ -171,6 +174,11 @@ class Supervisor():
                 l2_output_mu, l2_output_cov, l2_truth, l2_z_mu_all, \
                     l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(x, y)
 
+                if torch.any(torch.isnan(l2_output_mu)):
+                    self.logger.info(
+                        "Prediction returned NAN. Learning rate is too high...")
+                    continue
+
                 nll = nll_loss(l2_output_mu, l2_output_cov, l2_truth)
                 mae = mae_loss(l2_output_mu, l2_truth)
                 kld = kld_gaussian_loss(
@@ -202,8 +210,10 @@ class Supervisor():
             if eval is not False:
                 writer.add_scalar("mse", mse.item(), self.global_batch_idx)
                 writer.add_scalar("mae", mae.item(), self.global_batch_idx)
-                writer.add_scalar("norm_rmse", norm_rmse, self.global_batch_idx)
-                writer.add_scalar("non_mae", non_mae.item(), self.global_batch_idx)
+                writer.add_scalar("norm_rmse", norm_rmse,
+                                  self.global_batch_idx)
+                writer.add_scalar("non_mae", non_mae.item(),
+                                  self.global_batch_idx)
                 writer.flush()
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
@@ -222,8 +232,8 @@ class Supervisor():
         total_time = end - start
 
         self.logger.info(
-            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}" \
-             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}")
+            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}"
+            + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}")
 
         return non_mae_total
 
@@ -278,7 +288,8 @@ class Supervisor():
         with SeedContext(seed):
             self.init_model()
             best_loss = 100000
-            self.logger.info("Tuning: " + str(hyper_params) + " " + str(hyper_model_params))
+            self.logger.info("Tuning: " + str(hyper_params) +
+                             " " + str(hyper_model_params))
 
             self.epoch = 0
             for e in range(max_epochs):
@@ -298,6 +309,7 @@ class Supervisor():
                     "loss": best_loss
                 }
 
+
 if __name__ == "__main__":
     tune = True
 
@@ -306,11 +318,11 @@ if __name__ == "__main__":
     # parser.add_argument("seed", type=int, help="seed for random number generator")
     # args = parser.parse_args()
     # seed = args.seed
-    set_seed(seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 
-    supervisor = Supervisor(tune)
+    with SeedContext(seed):
+        supervisor = Supervisor(tune)
 
     def qloguniform(low, high, base, q):
         return np.power(base, np.random.uniform(low, high)) // q * q
@@ -322,21 +334,24 @@ if __name__ == "__main__":
 
         try:
             for i in range(num_samples):
-                hyper_config = {
-                    "weight_decay": np.random.uniform(0, 0.1),
-                    "lr": qloguniform(-6, -2, 7, 1e-6),
-                }
-                hyper_model_config = {
-                    "hidden_layers": np.random.choice([3, 5, 7]),
-                    "z_hidden_layers": np.random.choice([3, 5, 7]),
-                    "z_hidden_dim": np.random.choice([32, 64, 96, 160]),
-                    "z_dim": np.random.choice([32, 64, 96, 128, 160]),
-                    "hidden_dim": np.random.choice([32, 64, 96, 128, 160])
-                }
-                supervisor.hyper_tune(max_epochs, hyper_config, hyper_model_config)
+                with SeedContext(np.random.randint(1000)):
+                    hyper_config = {
+                        "weight_decay": np.random.uniform(0, 0.1),
+                        "lr": qloguniform(-6, -2, 7, 1e-6),
+                    }
+                    hyper_model_config = {
+                        "hidden_layers": np.random.choice([3, 5, 7]),
+                        "z_hidden_layers": np.random.choice([3, 5, 7]),
+                        "z_hidden_dim": np.random.choice([32, 64, 96, 160]),
+                        "z_dim": np.random.choice([32, 64, 96, 128, 160]),
+                        "hidden_dim": np.random.choice([32, 64, 96, 128, 160])
+                    }
+                supervisor.hyper_tune(
+                    max_epochs, hyper_config, hyper_model_config)
         except Exception as e:
             print(e)
         finally:
-            supervisor.logger.info("Best tuning results: " + str(supervisor.best_results))
+            supervisor.logger.info(
+                "Best tuning results: " + str(supervisor.best_results))
     else:
         supervisor.train()

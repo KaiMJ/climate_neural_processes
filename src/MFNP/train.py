@@ -191,10 +191,9 @@ class Supervisor():
             l1_y = l1_y.reshape(-1, 1, l1_y.shape[-1]).to(device)
 
             with torch.cuda.amp.autocast():
-                l1_output_mu, l1_output_cov, l2_output_mu, l2_output_cov, l1_y_truth, l2_y_truth, \
-                    l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c, \
-                    l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(
-                        l1_x, l1_y, l2_x, l2_y)
+                l1_output_mu, l1_output_cov, l2_output_mu, l2_output_cov, l1_y_truth,\
+                    l2_y_truth, l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c, \
+                    l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(l1_x, l1_y, l2_x, l2_y)
 
                 l2_nll = nll_loss(l2_output_mu, l2_output_cov, l2_y_truth)
                 l1_nll = nll_loss(l1_output_mu, l1_output_cov, l1_y_truth)
@@ -339,11 +338,11 @@ if __name__ == "__main__":
     # parser.add_argument("seed", type=int, help="seed for random number generator")
     # args = parser.parse_args()
     # seed = args.seed
-    set_seed(seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 
-    supervisor = Supervisor(tune)
+    with SeedContext(seed):
+        supervisor = Supervisor(tune)
 
     def qloguniform(low, high, base, q):
         return np.power(base, np.random.uniform(low, high)) // q * q
@@ -355,17 +354,18 @@ if __name__ == "__main__":
 
         try:
             for i in range(num_samples):
-                hyper_config = {
-                    "weight_decay": np.random.uniform(0, 0.1),
-                    "lr": qloguniform(-6, -2, 7, 1e-6),
-                }
-                hyper_model_config = {
-                    "hidden_layers": np.random.choice([3, 5, 7]),
-                    "z_hidden_layers": np.random.choice([3, 5, 7]),
-                    "z_hidden_dim": np.random.choice([32, 64, 96, 160]),
-                    "z_dim": np.random.choice([32, 64, 96, 128, 160]),
-                    "hidden_dim": np.random.choice([32, 64, 96, 128, 160])
-                }
+                with SeedContext(np.random.randint(1000)):
+                    hyper_config = {
+                        "weight_decay": np.random.uniform(0, 0.1),
+                        "lr": qloguniform(-6, -2, 7, 1e-6),
+                    }
+                    hyper_model_config = {
+                        "hidden_layers": np.random.choice([3, 5, 7]),
+                        "z_hidden_layers": np.random.choice([3, 5, 7]),
+                        "z_hidden_dim": np.random.choice([32, 64, 96, 160]),
+                        "z_dim": np.random.choice([32, 64, 96, 128, 160]),
+                        "hidden_dim": np.random.choice([32, 64, 96, 128, 160])
+                    }
                 supervisor.hyper_tune(max_epochs, hyper_config, hyper_model_config)
         except Exception as e:
             print(e)

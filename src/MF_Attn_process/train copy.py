@@ -1,23 +1,23 @@
-import argparse
-import time
-import random
-import dill
-import os
-import glob
-import yaml
-import numpy as np
-from torch.utils.tensorboard import SummaryWriter
-from torch.optim.lr_scheduler import StepLR, CyclicLR
-from torch.utils.data import DataLoader
-import torch
-from tqdm import tqdm
-from lib.utils import *
-from lib.loss import *
-from lib.dataset import *
-from model import Model
 import sys
 sys.path.append('..')
 sys.path.append('.')
+from model import Model
+from lib.dataset import *
+from lib.loss import *
+from lib.utils import *
+from tqdm import tqdm
+import torch
+from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import StepLR, CyclicLR
+from torch.utils.tensorboard import SummaryWriter
+import numpy as np
+import yaml
+import glob
+import os
+import dill
+import random
+import time
+import argparse
 
 
 def set_seed(seed):
@@ -25,7 +25,6 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-
 
 class SeedContext:
     def __init__(self, seed):
@@ -38,6 +37,25 @@ class SeedContext:
     def __exit__(self, exc_type, exc_val, exc_tb):
         np.random.set_state(self.state)
 
+def split_context_target(x, y, context_percentage_low, context_percentage_high):
+    """Helper function to split randomly into context and target"""
+    context_percentage = np.random.uniform(
+        context_percentage_low, context_percentage_high)
+    n_context = int(x.shape[1]*context_percentage)
+    ind = np.arange(x.shape[1])
+    mask = np.random.choice(ind, size=n_context, replace=False)
+    others = np.delete(ind, mask)
+
+    return mask, others
+
+# TODO: look at different KLD implementations
+
+
+def kl_div(prior_mu, prior_var, posterior_mu, posterior_var):
+    kl_div = (torch.exp(posterior_var) + (posterior_mu-prior_mu) ** 2) / \
+        torch.exp(prior_var) - 1. + (prior_var - posterior_var)
+    kl_div = 0.5 * kl_div.sum()
+    return kl_div
 
 class Supervisor():
 
@@ -158,36 +176,63 @@ class Supervisor():
         else:
             self.model.eval()
 
-        for i, (x_, y_) in enumerate(pbar := tqdm(loader, total=len(loader))):
+        for i, (l1_x_, l1_y_, l2_x_, l2_y_) in enumerate(pbar := tqdm(loader, total=len(loader))):
+            n_mb = 9
+            # For Tuning
+            rand_idxs = np.random.permutation(np.arange(x_.shape[1] / 144 * n_mb))
+            l1_x_ = l1_x_[:, rand_idxs]
+            l1_y_ = l1_y_[:, rand_idxs]
+            l2_x_ = l2_x_[:, rand_idxs]
+            l2_y_ = l2_y_[:, rand_idxs]
+
             # mini batch gradients
-            n_mb = 4
             mae_mb = 0
             mse_mb = 0
             non_mae_mb = 0
             norm_rmse_mb = 0
+
+            # TODO: make mini batches random
             for bg_idx in range(n_mb):
-                x = x_[:, bg_idx::n_mb]
-                y = y_[:, bg_idx::n_mb]
+                l1_x = l1_x_[:, bg_idx::n_mb]
+                l1_y = l1_y_[:, bg_idx::n_mb]
+                l2_x = l2_x_[:, bg_idx::n_mb]
+                l2_y = l2_y_[:, bg_idx::n_mb]
+
                 if eval is False:  # Random dropout during training
                     dropout = self.config['batch_dropout']
-                    n = int(x.shape[1] * (1 - dropout))
+                    n = int(l1_x.shape[1] * (1 - dropout))
                     idxs = np.random.permutation(np.arange(x.shape[1]))[:n]
-                    x = x[:, idxs, :]
-                    y = y[:, idxs, :]
+                    l1_x = l1_x[:, idxs, :]
+                    l1_y = l1_y[:, idxs]
+                    l2_x = l2_x[:, idxs, :]
+                    l2_y = l2_y[:, idxs]
 
-                x = x.reshape(-1, 1, x.shape[-1]).to(device)
-                y = y.reshape(-1, 1, y.shape[-1]).to(device)
-                l2_truth = y
+                    context_idxs, target_idxs = split_context_target(l1_x, l1_y, self.config['model']['context_percentage_low'], \
+                                                                        self.config['model']['context_percentage_high'])
+                    l1_x_context = l1_x[:, context_idxs, :]
+                    l1_y_context = l1_y[:, context_idxs]
+                    l1_x_target = l1_x[:, target_idxs, :]
+                    l1_truth = l1_y[:, target_idxs]
+                    l2_x_context = l2_x[:, context_idxs, :]
+                    l2_y_context = l2_y[:, context_idxs]
+                    l2_x_target = l2_x[:, target_idxs, :]
+                    l2_truth = l2_y[:, target_idxs]
+
                 with torch.cuda.amp.autocast():
-                    l2_output_mu = self.model(x)
+                    l1_output_mu, l1_output_cov, l2_output_mu, l2_output_cov, l1_y_truth,\
+                        l2_y_truth, l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c, \
+                        l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(l1_x_context, l1_y, l2_x, l2_y)
 
-                    if torch.any(torch.isnan(l2_output_mu)):
-                        self.logger.info(
-                            "Prediction returned NAN. Learning rate is too high...")
-                        continue
+                    l2_nll = nll_loss(l2_output_mu, l2_output_cov, l2_y_truth)
+                    l1_nll = nll_loss(l1_output_mu, l1_output_cov, l1_y_truth)
+                    l2_mae = mae_loss(l2_output_mu, l2_y_truth)
+                    l1_mae = mae_loss(l1_output_mu, l1_y_truth)
+                    l2_kld = kld_gaussian_loss(
+                        l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c)
+                    l1_kld = kld_gaussian_loss(
+                        l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c)
 
-                    mae = mae_loss(l2_output_mu, l2_truth)
-                    loss = mae
+                    loss = l2_nll + l1_nll + l2_mae + l1_mae + l2_kld + l1_kld
 
                     if not eval:
                         self.optim.zero_grad()
@@ -205,44 +250,43 @@ class Supervisor():
                     l2_truth.unsqueeze(1).detach().cpu().numpy())
                 non_mae = mae_metric(non_y_pred, non_y)
 
-                mse_total += mse.item()
-                mae_total += mae.item()
-                norm_rmse_total += norm_rmse
-                non_mae_total += non_mae.item()
-
                 mae_mb += mae
                 mse_mb += mse
                 non_mae_mb += non_mae
                 norm_rmse_mb += norm_rmse
 
+            mae_mb /= n_mb
+            mse_mb /= n_mb
+            non_mae_mb /= n_mb
+            norm_rmse_mb /= n_mb
+
             if eval is not False:
-                writer.add_scalar("mse", mse_mb.item() /
-                                  n_mb, self.global_batch_idx)
-                writer.add_scalar("mae", mae_mb.item() /
-                                  n_mb, self.global_batch_idx)
-                writer.add_scalar(
-                    "non_mae", non_mae_mb.item() / n_mb, self.global_batch_idx)
-                writer.add_scalar("norm_rmse", norm_rmse_mb /
-                                  n_mb, self.global_batch_idx)
+                writer.add_scalar("mse", mse_mb.item(), self.global_batch_idx)
+                writer.add_scalar("mae", mae_mb.item(), self.global_batch_idx)
+                writer.add_scalar("non_mae", non_mae_mb.item(), self.global_batch_idx)
+                writer.add_scalar("norm_rmse", norm_rmse_mb, self.global_batch_idx)
                 writer.flush()
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
-            pbar.set_postfix_str(
-                f"MSE: {mse.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae_total:.6f}")
+            pbar.set_postfix_str(f"MSE: {mse_mb.item():.6f} MAE: {mae_mb.item():.6f} NON-MAE: {non_mae_mb.item():.6f}")
             if not eval:
                 self.global_batch_idx += 1
 
-        mse_total /= (i+1) * n_mb
-        mae_total /= (i+1) * n_mb
-        non_mae_total /= (i+1) * n_mb
-        norm_rmse_total /= (i+1) * n_mb
-        non_norm_rmse_total /= (i+1) * n_mb
+            mae_total += mae_mb.item()
+            mse_total += mse_mb.item()
+            norm_rmse_total += norm_rmse_mb
+            non_mae_total += non_mae_mb.item()
+
+        mse_total /= (i+1)
+        mae_total /= (i+1)
+        non_mae_total /= (i+1)
+        norm_rmse_total /= (i+1)
+        non_norm_rmse_total /= (i+1)
 
         end = time.time()
         total_time = end - start
 
-        self.logger.info(
-            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}"
+        self.logger.info(f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}"
             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}")
 
         return non_mae_total
@@ -296,10 +340,9 @@ class Supervisor():
         self.config["model"].update(hyper_model_params)
         with SeedContext(seed):
             self.init_model()
-
             best_loss = 100000
             self.logger.info("Tuning: " + str(hyper_params) +
-                             " " + str(hyper_model_params))
+                            " " + str(hyper_model_params))
 
             self.epoch = 0
             for e in range(max_epochs):
@@ -328,11 +371,11 @@ if __name__ == "__main__":
     # parser.add_argument("seed", type=int, help="seed for random number generator")
     # args = parser.parse_args()
     # seed = args.seed
+    set_seed(seed)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:0" if torch.cuda.is_available() else 'cpu')
 
-    with SeedContext(seed):
-        supervisor = Supervisor(tune)
+    supervisor = Supervisor(tune)
 
     def qloguniform(low, high, base, q):
         return np.power(base, np.random.uniform(low, high)) // q * q
@@ -344,23 +387,26 @@ if __name__ == "__main__":
 
         try:
             for i in range(num_samples):
-                with SeedContext(np.random.randint(1000)):
-                    hyper_config = {
-                        "weight_decay": np.random.uniform(0, 0.1),
-                        "lr": qloguniform(-6, -3, 7, 1e-6),
-                    }
-                    hyper_model_config = {
-                        "num_heads": int(np.random.choice([4, 8, 16])),
-                        "attention_layers": np.random.choice([4, 8, 12]),
-                        "n_embd": int(np.random.choice([32, 48, 64, 96, 128])),
-                        "dropout": np.random.uniform(0, 0.4),
-                    }
-                supervisor.hyper_tune(
-                    max_epochs, hyper_config, hyper_model_config)
+                hyper_config = {
+                    "weight_decay": np.random.uniform(0, 0.1),
+                    "lr": qloguniform(-6, -2, 7, 1e-6),
+                }
+                hyper_model_config = {
+                    # "num_heads": int(np.random.choice([4, 8, 16])),
+                    "num_heads": 16,
+                    # "attention_layers": np.random.choice([4, 8, 12]),
+                    "attention_layers": 12,
+                    # "n_embd": int(np.random.choice([32, 48, 64, 96, 128])),
+                    "n_embd": 128,
+                    # "hidden_dim": np.random.choice([32, 64, 96, 128, 160]),
+                    "hidden_dim": 160,
+                    "dropout": np.random.uniform(0, 0.4),
+                }
+                supervisor.hyper_tune(max_epochs, hyper_config, hyper_model_config)
         except Exception as e:
             print(e)
         finally:
-            supervisor.logger.info(
-                "Best tuning results: " + str(supervisor.best_results))
+            supervisor.logger.info("Best tuning results: " + str(supervisor.best_results))
+
     else:
         supervisor.train()
