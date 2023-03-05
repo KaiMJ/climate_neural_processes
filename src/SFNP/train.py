@@ -1,4 +1,3 @@
-import sys
 import os
 from ray import tune, air
 from lib.model import Model
@@ -15,31 +14,10 @@ import yaml
 import glob
 import os
 import dill
-import random
 import time
 import argparse
 
 cwd = os.getcwd()
-
-
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-
-class SeedContext:
-    def __init__(self, seed):
-        self.seed = seed
-        self.state = np.random.get_state()
-
-    def __enter__(self):
-        set_seed(self.seed)
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        np.random.set_state(self.state)
-
 
 class Supervisor(tune.Trainable):
     """
@@ -120,10 +98,10 @@ class Supervisor(tune.Trainable):
         l2_y_data = sorted(
             glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
 
-        n = 10
+        n = 365
         split_n = int(n*0.8)
-        l2_x_train = l2_x_data[:split_n]
-        l2_y_train = l2_y_data[:split_n]
+        l2_x_train = l2_x_data[:split_n][::4]
+        l2_y_train = l2_y_data[:split_n][::4]
         l2_x_valid = l2_x_data[split_n:n]
         l2_y_valid = l2_y_data[split_n:n]
 
@@ -308,25 +286,23 @@ class Supervisor(tune.Trainable):
 
 def main(TUNE):
     if TUNE:
-        num_samples = 3
-        max_iter = 1
+        num_samples = 30
+        max_iter = 2
         param_space = {
             "train": {
-                "lr": tune.loguniform(1e-6, 1e-3),
-                "batch_dropout": 0.1,
-                "weight_decay": 0,
+                "lr": tune.qloguniform(1e-6, 1e-3, 1e-6),
+                "batch_dropout": tune.uniform(0, 0.5),
+                "weight_decay": tune.uniform(0, 0.2),
                 # "decay_steps": 10,
                 # "decay_rate": 0.9
             },
             "model": {
-                "hidden_layers": 5,
-                "z_hidden_layers": 5,
-                "z_hidden_dim": 96,
-                "z_dim": 160,
-                "input_dim": 108,
-                "output_dim": 26,
-                "hidden_dim": 32
-            }
+                "hidden_layers": tune.choice([3, 5, 7]),
+                "z_hidden_layers": tune.choice([3, 5, 7]),
+                "z_hidden_dim": tune.choice([32, 64, 96]),
+                "z_dim": tune.choice([64, 96, 128, 160]),
+                "hidden_dim": tune.choice([32, 64, 96])
+            },
         }
         tuner = tune.Tuner(
             tune.with_resources(Supervisor, {"cpu": 1, "gpu": 0.5}),
@@ -347,6 +323,7 @@ def main(TUNE):
         )
         results = tuner.fit()
     else:
+        set_seed(seed)
         supervisor = Supervisor()
         supervisor.init_config()
         supervisor.init_dataloader()
@@ -367,6 +344,4 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 
-    def qloguniform(low, high, base, q):
-        return np.power(base, np.random.uniform(low, high)) // q * q
     main(TUNE)

@@ -13,6 +13,7 @@ import os
 import warnings
 import numpy as np
 import sys
+import random
 
 def split_context_target(x, context_percentage_low, context_percentage_high, axis=0):
     """Helper function to split randomly into context and target"""
@@ -24,6 +25,25 @@ def split_context_target(x, context_percentage_low, context_percentage_high, axi
     target_idxs = np.delete(ind, context_idxs)
 
     return context_idxs, target_idxs
+
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+class SeedContext:
+    def __init__(self, seed):
+        self.seed = seed
+        self.state = np.random.get_state()
+
+    def __enter__(self):
+        set_seed(self.seed)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        np.random.set_state(self.state)
+
 
 def make_dir(name):
     if not os.path.exists(name):
