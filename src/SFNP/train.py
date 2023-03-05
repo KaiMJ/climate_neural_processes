@@ -31,12 +31,9 @@ class Supervisor(tune.Trainable):
         self.init_checkpoint()
 
     def step(self):
-        # best_loss = 9999
         self.model_step(eval=False)
         with torch.no_grad():
             valid_loss = self.model_step(eval=True)
-            # if valid_loss < best_loss:
-            # best_loss = valid_loss
         return {"loss": valid_loss}
 
     def init_config(self, ray_config=None):
@@ -284,7 +281,7 @@ class Supervisor(tune.Trainable):
             self.logger.info("Interrupted")
 
 
-def main(TUNE):
+def main():
     if TUNE:
         num_samples = 30
         max_iter = 2
@@ -344,4 +341,4 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 
-    main(TUNE)
+    main()

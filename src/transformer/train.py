@@ -20,7 +20,7 @@ from lib.model import Model
 cwd = os.getcwd()
 
 
-class Supervisor():
+class Supervisor(tune.Trainable):
     """
         setup and step is for ray tune.
     """
@@ -256,9 +256,9 @@ class Supervisor():
     def train_model(self):
         try:
             while True:
-                self.step(eval=False)
+                self.model_step(eval=False)
                 with torch.no_grad():
-                    valid_loss = self.step(eval=True)
+                    valid_loss = self.model_step(eval=True)
 
                 self.config['epoch'] = self.epoch
                 self.config['global_batch_idx'] = self.global_batch_idx
@@ -312,9 +312,9 @@ def main():
                 # "decay_rate": 0.9
             },
             "model": {
-                "num_heads": int(tune.choice([4, 8, 16])),
+                "num_heads": tune.choice([4, 8, 16]),
                 "attention_layers": tune.choice([4, 8, 12]),
-                "n_embd": int(tune.choice([32, 48, 64, 96, 128])),
+                "n_embd": tune.choice([32, 48, 64, 96, 128]),
                 "dropout": tune.uniform(0, 0.4),
             },
         }
@@ -348,7 +348,7 @@ def main():
 
 
 if __name__ == "__main__":
-    TUNE = True
+    TUNE = False
 
     seed = 0
     # parser = argparse.ArgumentParser()

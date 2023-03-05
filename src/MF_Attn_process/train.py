@@ -87,6 +87,7 @@ def step(model, optim, scheduler, loader, writer, logger, eval=False):
 
             # TODO: FIX both levels
             nll = nll_loss(l2_output_mu, l2_output_cov, y, mean=True)
+            
             mae = mae_loss(l2_output_mu, y)
             kld = kl_div(l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c)
             loss = nll + mae + kld

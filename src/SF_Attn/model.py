@@ -1,6 +1,8 @@
 import torch as t
 import torch.nn as nn
 import math
+import numpy as np
+
 
 class Linear(nn.Module):
     """
@@ -261,7 +263,19 @@ class Model(nn.Module):
         self.latent_encoder = LatentEncoder(config)
         self.deterministic_encoder = DeterministicEncoder(config)
         self.decoder = Decoder(config)
-        
+        self.context_percentage_low = config['context_percentage_low']
+        self.context_percentage_high = config['context_percentage_high']
+
+    def split_context_target(self, x, y, context_percentage_low, context_percentage_high):
+        """Helper function to split randomly into context and target"""
+        context_percentage = np.random.uniform(
+            context_percentage_low, context_percentage_high)
+        n_context = int(x.shape[1]*context_percentage)
+        ind = np.arange(x.shape[1])
+        mask = np.random.choice(ind, size=n_context, replace=False)
+        others = np.delete(ind, mask)
+
+        return mask, others
     def forward(self, context_x, context_y, target_x, target_y=None):
         l2_z_mu_c, l2_z_cov_c, prior_z = self.latent_encoder(context_x, context_y)
 
@@ -282,6 +296,22 @@ class Model(nn.Module):
             return l2_output_mu, l2_output_cov, l2_z_mu_c, l2_z_cov_c, l2_z_mu_all, l2_z_cov_all
         else:
             return l2_output_mu, l2_output_cov
+
+    def forward(self, x_context, y_context, x_target, x_all=None, y_all=None):
+        l2_z_mu_c, l2_z_cov_c, prior_z = self.latent_encoder(context_x, context_y)
+
+        if x_all is not None:
+            l2_r_all = self.xy_to_r(x_all, y_all)
+            l2_z_mu_all, l2_z_cov_all = self.mean_z_agg(l2_r_all)
+            l2_zs = self.sample_z(l2_z_mu_all, l2_z_cov_all, x_target.size(0))
+            l2_output_mu, l2_output_cov = self.z_to_y(x_target, l2_zs)
+            return l2_output_mu, l2_output_cov, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c
+
+        else:
+            l2_zs = self.sample_z(l2_z_mu_c, l2_z_cov_c, x_target.size(0))
+            l2_output_mu, l2_output_cov = self.z_to_y(x_target, l2_zs)
+            return l2_output_mu, l2_output_cov
+
 
     def kl_div(self, prior_mu, prior_var, posterior_mu, posterior_var):
         kl_div = (t.exp(posterior_var) + (posterior_mu-prior_mu) ** 2) / t.exp(prior_var) - 1. + (prior_var - posterior_var)

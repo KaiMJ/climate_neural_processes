@@ -14,12 +14,20 @@ import warnings
 import numpy as np
 import sys
 
-device = torch.device("cuda")
+def split_context_target(x, context_percentage_low, context_percentage_high, axis=0):
+    """Helper function to split randomly into context and target"""
+    context_percentage = np.random.uniform(
+        context_percentage_low, context_percentage_high)
+    n_context = int(x.shape[axis]*context_percentage)
+    ind = np.arange(x.shape[axis])
+    context_idxs = np.random.choice(ind, size=n_context, replace=False)
+    target_idxs = np.delete(ind, context_idxs)
+
+    return context_idxs, target_idxs
 
 def make_dir(name):
     if not os.path.exists(name):
         os.makedirs(name)
-
 
 class MinMaxScaler:
     """

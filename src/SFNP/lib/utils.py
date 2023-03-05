@@ -26,7 +26,6 @@ def split_context_target(x, context_percentage_low, context_percentage_high, axi
 
     return context_idxs, target_idxs
 
-
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)

@@ -182,8 +182,7 @@ class Supervisor():
         for i, (x_, y_) in enumerate(pbar := tqdm(loader, total=len(loader))):
             n_mb = 9
             # For Tuning
-            rand_idxs = np.random.permutation(
-                np.arange(x_.shape[1] / 144 * n_mb))
+            rand_idxs = np.random.permutation(np.arange(x_.shape[1] / 144 * n_mb))
             x_ = x_[:, rand_idxs]
             y_ = y_[:, rand_idxs]
 
@@ -203,6 +202,7 @@ class Supervisor():
                     idxs = np.random.permutation(np.arange(x.shape[1]))[:n]
                     x = x[:, idxs, :]
                     y = y[:, idxs, :]
+
 
                 context_idxs, target_idxs = split_context_target(
                     x, y, self.config['model']['context_percentage_low'], self.config['model']['context_percentage_high'])
@@ -285,7 +285,7 @@ class Supervisor():
         self.logger.info(
             f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}"
             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}"
-            + f"LR: {self.scheduler.get_last_lr()[0]:6f}")
+            + f" LR: {self.scheduler.get_last_lr()[0]:6f}")
 
         return non_mae_total
 
@@ -402,8 +402,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(e)
         finally:
-            supervisor.logger.info(
-                "Best tuning results: " + str(supervisor.best_results))
+            supervisor.logger.info("Best tuning results: " + str(supervisor.best_results))
 
     else:
         supervisor.train()
