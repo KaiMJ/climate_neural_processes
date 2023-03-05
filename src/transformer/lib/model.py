@@ -95,7 +95,7 @@ class SelfAttention(nn.Module):
         self.resid_dropout = nn.Dropout(config['dropout'])
         # causal mask to ensure that attention is only applied to the left in the input sequence
         # self.register_buffer("bias", torch.tril(torch.ones(config['block_size'], config['block_size']))
-        #                             .view(1, 1, config['block_size'], config['block_size']))
+        #               max_iter              .view(1, 1, config['block_size'], config['block_size']))
         self.num_heads = config['num_heads']
         self.n_embd = config['n_embd']
 
@@ -184,7 +184,6 @@ class Model(nn.Module):
         out = self.proj(out)
 
         return out
-
 
 
 class NoAttention(nn.Module):

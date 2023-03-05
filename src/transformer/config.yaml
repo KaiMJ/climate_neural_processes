@@ -1,4 +1,4 @@
-title: transformer_tune
+title: transformer_pos_tune
 
 data_dir: /home/mkim/Nserver/climate_processes/data
 log_dir: logs
