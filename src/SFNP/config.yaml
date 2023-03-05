@@ -1,6 +1,6 @@
-title: SFNP_tuned
+title: SFNP_ray_tune
 
-data_dir: ../../data
+data_dir: /home/mkim/Nserver/climate_processes/data
 log_dir: logs
 
 batch_size: 1
@@ -14,6 +14,8 @@ decay_rate: 0.9
 
 patience: 200
 best_loss: 999999999
+context_percentage_low: 0.2
+context_percentage_high: 0.5
 
 model:
   hidden_layers: 5
@@ -23,7 +25,5 @@ model:
   input_dim: 108
   output_dim: 26
   hidden_dim: 32
-  context_percentage_low: 0.2
-  context_percentage_high: 0.5
 
 load_checkpoint: False

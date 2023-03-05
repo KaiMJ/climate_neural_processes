@@ -99,26 +99,13 @@ class Model(nn.Module):
         self.hidden_dim = int(config['hidden_dim'])
         self.encoder_output_dim = self.z_dim
         self.decoder_input_dim = self.z_dim + self.input_dim
-        self.context_percentage_low = float(config['context_percentage_low'])
-        self.context_percentage_high = float(config['context_percentage_high'])
 
         self.l2_encoder_model = MLP_Encoder(self.input_dim+self.output_dim, self.encoder_output_dim, self.hidden_layers, self.hidden_dim)
         self.l2_z_encoder_model = MLP_ZEncoder(self.z_dim, self.z_dim, self.z_hidden_layers, self.z_hidden_dim)
         self.l2_decoder_model = MLP_Decoder(self.decoder_input_dim, self.output_dim, self.hidden_layers, self.hidden_dim)
-        print('model init')
+
     def count_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
-
-    def split_context_target(self, x, y, context_percentage_low, context_percentage_high):
-        """Helper function to split randomly into context and target"""
-        context_percentage = np.random.uniform(context_percentage_low,context_percentage_high)
-
-        n_context = int(x.shape[0]*context_percentage)
-        ind = np.arange(x.shape[0])
-        mask = np.random.choice(ind, size=n_context, replace=False)
-        other = np.setdiff1d(ind, mask)
-
-        return x[mask], y[mask], x[other], y[other], mask
 
     def sample_z(self, mean, var, n=1):
         """Reparameterisation trick."""
@@ -138,37 +125,23 @@ class Model(nn.Module):
         return output
 
     def mean_z_agg(self, r):
-        # r_mu = torch.swapaxes(r_mu,0,1)
-        # r_cov = torch.swapaxes(r_cov,0,1)
-
         r_agg = torch.mean(r,dim=0)
         z_mu, z_cov = self.l2_z_encoder_model(r_agg)
         return z_mu, z_cov
 
 
-    def forward(self, l2_x_all=None, l2_y_all=None, l2_z_mu_all=None, l2_z_cov_all=None, return_idxs=False):
+    def forward(self, x_context, y_context, x_target, x_all=None, y_all=None):
+        l2_r_c = self.xy_to_r(x_context, y_context)
+        l2_z_mu_c, l2_z_cov_c = self.mean_z_agg(l2_r_c)
 
-        if l2_y_all is not None:
-            l2_x_c,l2_y_c,l2_x_t,l2_y_t, idxs = self.split_context_target(l2_x_all,l2_y_all, self.context_percentage_low, self.context_percentage_high)
-
-            l2_r_all = self.xy_to_r(l2_x_all, l2_y_all)
-            l2_r_c = self.xy_to_r(l2_x_c, l2_y_c)
+        if x_all is not None:
+            l2_r_all = self.xy_to_r(x_all, y_all)
             l2_z_mu_all, l2_z_cov_all = self.mean_z_agg(l2_r_all)
-            l2_z_mu_c, l2_z_cov_c = self.mean_z_agg(l2_r_c)
-
-            l2_zs = self.sample_z(l2_z_mu_all, l2_z_cov_all, l2_x_t.size(0))
-            l2_output_mu, l2_output_cov = self.z_to_y(l2_x_t,l2_zs)
-            l2_truth = l2_y_t
-
-            if not return_idxs:
-                return l2_output_mu, l2_output_cov, l2_truth, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c
-            if return_idxs:
-                return l2_output_mu, l2_output_cov, l2_truth, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c, idxs
-
+            l2_zs = self.sample_z(l2_z_mu_all, l2_z_cov_all, x_target.size(0))
+            l2_output_mu, l2_output_cov = self.z_to_y(x_target, l2_zs)
+            return l2_output_mu, l2_output_cov, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c
 
         else:
-            l2_output_mu, l2_output_cov = None, None
-            if l2_x_all is not None:
-                l2_zs = self.sample_z(l2_z_mu_all, l2_z_cov_all, l2_x_all.size(0))
-                l2_output_mu, l2_output_cov = self.z_to_y(l2_x_all, l2_zs)
+            l2_zs = self.sample_z(l2_z_mu_c, l2_z_cov_c, x_target.size(0))
+            l2_output_mu, l2_output_cov = self.z_to_y(x_target, l2_zs)
             return l2_output_mu, l2_output_cov
