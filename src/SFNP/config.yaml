@@ -4,11 +4,11 @@ data_dir: /home/mkim/Nserver/climate_processes/data
 log_dir: logs
 
 batch_size: 1
-lr: 0.0001
+lr: 0.000909
 global_batch_idx: 0
-batch_dropout: 0.1
+batch_dropout: 0.345198
 
-weight_decay: 0
+weight_decay: 0.116996
 decay_steps: 10000
 decay_rate: 0.9
 
@@ -18,12 +18,12 @@ context_percentage_low: 0.2
 context_percentage_high: 0.5
 
 model:
-  hidden_layers: 5
-  z_hidden_layers: 5
-  z_hidden_dim: 96
-  z_dim: 160
+  hidden_layers: 7
+  z_hidden_layers: 7
+  z_hidden_dim: 32
+  z_dim: 96
   input_dim: 108
   output_dim: 26
-  hidden_dim: 32
+  hidden_dim: 64
 
 load_checkpoint: False
