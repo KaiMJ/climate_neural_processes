@@ -1,4 +1,4 @@
-title: SFNP_ray_tune
+title: SFNP_train
 
 data_dir: /home/mkim/Nserver/climate_processes/data
 log_dir: logs
@@ -9,10 +9,10 @@ global_batch_idx: 0
 batch_dropout: 0.345198
 
 weight_decay: 0.116996
-decay_steps: 10000
+decay_steps: 10
 decay_rate: 0.9
 
-patience: 200
+patience: 20
 best_loss: 999999999
 context_percentage_low: 0.2
 context_percentage_high: 0.5

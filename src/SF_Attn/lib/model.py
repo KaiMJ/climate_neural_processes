@@ -2,7 +2,8 @@ import torch as t
 import torch.nn as nn
 import math
 import numpy as np
-
+import sys, os
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath("__file__")), '../..'))
 
 class Linear(nn.Module):
     """
@@ -276,44 +277,17 @@ class Model(nn.Module):
         others = np.delete(ind, mask)
 
         return mask, others
-    def forward(self, context_x, context_y, target_x, target_y=None):
-        l2_z_mu_c, l2_z_cov_c, prior_z = self.latent_encoder(context_x, context_y)
+    def forward(self, x_context, y_context, x_target, y_target=None):
+        l2_z_mu_c, l2_z_cov_c, z = self.latent_encoder(x_context, y_context)
 
-        # For training
-        if target_y is not None:
-            l2_z_mu_all, l2_z_cov_all, posterior_z = self.latent_encoder(target_x, target_y)
-            z = posterior_z
+        if y_target is not None:
+            l2_z_mu_all, l2_z_cov_all, z = self.latent_encoder(x_target, y_target)
 
-        # For Generation
-        else:
-            z = prior_z
+        z = z.unsqueeze(1).repeat(1, x_target.size(1), 1) # [B, T_target, H]
+        r = self.deterministic_encoder(x_context, y_context, x_target) # [B, T_target, H]
+        l2_output_mu, l2_output_cov = self.decoder(r, z, x_target)
 
-        z = z.unsqueeze(1).repeat(1, target_x.size(1), 1) # [B, T_target, H]
-        r = self.deterministic_encoder(context_x, context_y, target_x) # [B, T_target, H]
-        l2_output_mu, l2_output_cov = self.decoder(r, z, target_x)
-
-        if target_y is not None:
+        if y_target is not None:
             return l2_output_mu, l2_output_cov, l2_z_mu_c, l2_z_cov_c, l2_z_mu_all, l2_z_cov_all
         else:
             return l2_output_mu, l2_output_cov
-
-    def forward(self, x_context, y_context, x_target, x_all=None, y_all=None):
-        l2_z_mu_c, l2_z_cov_c, prior_z = self.latent_encoder(context_x, context_y)
-
-        if x_all is not None:
-            l2_r_all = self.xy_to_r(x_all, y_all)
-            l2_z_mu_all, l2_z_cov_all = self.mean_z_agg(l2_r_all)
-            l2_zs = self.sample_z(l2_z_mu_all, l2_z_cov_all, x_target.size(0))
-            l2_output_mu, l2_output_cov = self.z_to_y(x_target, l2_zs)
-            return l2_output_mu, l2_output_cov, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c
-
-        else:
-            l2_zs = self.sample_z(l2_z_mu_c, l2_z_cov_c, x_target.size(0))
-            l2_output_mu, l2_output_cov = self.z_to_y(x_target, l2_zs)
-            return l2_output_mu, l2_output_cov
-
-
-    def kl_div(self, prior_mu, prior_var, posterior_mu, posterior_var):
-        kl_div = (t.exp(posterior_var) + (posterior_mu-prior_mu) ** 2) / t.exp(prior_var) - 1. + (prior_var - posterior_var)
-        kl_div = 0.5 * kl_div.sum()
-        return kl_div

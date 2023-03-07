@@ -7,11 +7,11 @@ from torch.utils.data import DataLoader
 import yaml
 import glob
 import dill
-from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-from tqdm import tqdm
+import tqdm
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 class Evaluator():
     def __init__(self, dirpath):
@@ -21,9 +21,9 @@ class Evaluator():
         self.init_model()
 
     def init_model(self):
-        self.device = device
+        self.device = torch.device('cuda')
         model_dict = torch.load(
-            f"{self.dirpath}/best.pt", map_location=self.device)
+            f"{self.dirpath}/best.pt", map_location=torch.device('cuda'))
         model = Model(model_dict['config']['model']).to(self.device)
 
         model.load_state_dict(model_dict['model'])
@@ -77,8 +77,8 @@ class Evaluator():
         with torch.no_grad():
             x, y = data
 
-            x = x.reshape(-1, 1, x.shape[-1]).to(self.device)
-            y = y.reshape(-1, 1, y.shape[-1]).to(self.device)
+            x = x.reshape(-1, 1, x.shape[-1]).to(device)
+            y = y.reshape(-1, 1, y.shape[-1]).to(device)
             context_idxs, target_idxs = split_context_target(
                 x, self.config['context_percentage_low'], self.config['context_percentage_high'])
 
@@ -98,25 +98,7 @@ class Evaluator():
             return non_y, non_y_pred, context_idxs, target_idxs
         
     def get_loss(self):
-        step_size = len(self.trainloader)
-        train_event_file = sorted(glob.glob(os.path.join(self.dirpath, "runs/train/events.out.tfevents*")), key=os.path.getctime)[-1]
-        valid_event_file = sorted(glob.glob(os.path.join(self.dirpath, "runs/valid/events.out.tfevents*")), key=os.path.getctime)[-1]
-        train_acc = EventAccumulator(train_event_file)
-        valid_acc = EventAccumulator(valid_event_file)
-        train_acc.Reload()
-        valid_acc.Reload()
-
-        valid_values = [ s.value for s in valid_acc.Scalars("non_mae")]
-        n_epochs = len(valid_values)
-
-        # Change each iteration to epochs
-        train_values = np.array([ s.value for s in train_acc.Scalars("non_mae")])
-        max_n = min(len(train_values) // step_size, n_epochs)
-        train_values = train_values[:max_n * step_size]
-        valid_values = valid_values[:max_n]
-        train_values = train_values.reshape(-1, step_size).mean(axis=1)
-
-        return train_values, valid_values
+        path = f"{self.dirpath}/best.pt"
 
     def get_R_stats(self, loader):
         self._get_stats(loader)
@@ -145,8 +127,8 @@ class Evaluator():
         self.y2_total = 0
         self.y_mean = 0
         self.y_pred_mean = 0
+        self.nmae = 0
         self.non_mae = 0
-        self.y_max = 0
 
         with torch.no_grad():
             for i, data in enumerate(tqdm(loader, total=len(loader))):
@@ -164,16 +146,16 @@ class Evaluator():
                 self.y2_total += (non_y_pred ** 2).sum(axis=0)
                 self.xy_total += (non_y_pred * non_y).sum(axis=0)
 
-                self.y_max = np.maximum(self.y_max, np.abs(non_y).max(axis=0))
-
         self.y_mean /= self.n_total
         self.y_pred_mean /= self.n_total
+        self.nmae /= self.n_total
         self.non_mae /= self.n_total
-        self.nmae = self.non_mae / self.y_max
+        self.nmae = np.abs(
+            np.sqrt(self.non_mae / self.n_total) / np.abs(self.y_mean))
 
-    def plot_scenario(self, day, hour=0, split="test"):
+    def plot_scenario(self, idx, split="test"):
         """
-            Plots xth day of the scenario.
+            Plots idxth day of the scenario.
         """
         if split == "test":
             loader = self.testloader
@@ -183,12 +165,11 @@ class Evaluator():
             loader = self.trainloader
 
         for i, data in enumerate(loader):
-            if i < day: continue
             x, y = data
 
             with torch.no_grad():
-                x = x.reshape(24, -1, 1, x.shape[-1])[hour].to(device)
-                y = y.reshape(24, -1, 1, y.shape[-1])[hour].to(device)
+                x = x.reshape(24, -1, 1, x.shape[-1])[idx].to(device)
+                y = y.reshape(24, -1, 1, y.shape[-1])[idx].to(device)
                 context_idxs, target_idxs = split_context_target(x, self.config['context_percentage_low'],
                                                                  self.config['context_percentage_high'])
 

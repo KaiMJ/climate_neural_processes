@@ -14,10 +14,10 @@ max_lr: 0.01
 optim: adam
 weight_decay: 0.06818202991034834
 decay_steps: 5
-decay_rate: 0.5
+decay_rate: 0.9
 gamma: 1
 
-patience: 250
+patience: 20
 best_loss: 99999
 
 model:

@@ -1,6 +1,6 @@
-title: transformer_pos_tune
+title: transformer_train
 
-data_dir: /home/mkim/Nserver/climate_processes/data
+data_dir: /data/allen/climate_data
 log_dir: logs
 
 batch_size: 1
@@ -9,10 +9,10 @@ global_batch_idx: 0
 batch_dropout: 0.1
 
 weight_decay: 0.04227092357481125
-decay_steps: 7
-decay_rate: 0.5
+decay_steps: 10
+decay_rate: 0.9
 
-patience: 200
+patience: 20
 best_loss: 999999999
 
 model:

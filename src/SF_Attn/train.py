@@ -1,9 +1,7 @@
-import sys
-sys.path.append('..')
-sys.path.append('.')
-from model import Model
+from lib.model import Model
 from lib.dataset import *
 from lib.loss import *
+from ray import tune, air
 from lib.utils import *
 from tqdm import tqdm
 import torch
@@ -15,64 +13,34 @@ import yaml
 import glob
 import os
 import dill
-import random
 import time
 import argparse
 
-
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+cwd = os.getcwd()
 
 
-class SeedContext:
-    def __init__(self, seed):
-        self.seed = seed
-        self.state = np.random.get_state()
+class Supervisor(tune.Trainable):
+    """
+        setup and step is for ray tune.
+    """
 
-    def __enter__(self):
-        set_seed(self.seed)
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        np.random.set_state(self.state)
-
-
-def split_context_target(x, y, context_percentage_low, context_percentage_high):
-    """Helper function to split randomly into context and target"""
-    context_percentage = np.random.uniform(
-        context_percentage_low, context_percentage_high)
-    n_context = int(x.shape[1]*context_percentage)
-    ind = np.arange(x.shape[1])
-    mask = np.random.choice(ind, size=n_context, replace=False)
-    others = np.delete(ind, mask)
-
-    return mask, others
-
-# TODO: look at different KLD implementations
-
-
-def kl_div(prior_mu, prior_var, posterior_mu, posterior_var):
-    kl_div = (torch.exp(posterior_var) + (posterior_mu-prior_mu) ** 2) / \
-        torch.exp(prior_var) - 1. + (prior_var - posterior_var)
-    kl_div = 0.5 * kl_div.sum()
-    return kl_div
-
-
-class Supervisor():
-
-    def __init__(self, tune=False):
-        self.init_config()
+    def setup(self, config=None):
+        self.init_config(config)
         self.init_dataloader()
-        if tune:
-            self.tune_best_loss = 999999
-        else:
-            self.init_model()
+        self.init_model()
         self.init_checkpoint()
 
-    def init_config(self):
-        config = yaml.safe_load(open("config.yaml"))
+    def step(self):
+        self.model_step(eval=False)
+        with torch.no_grad():
+            valid_loss = self.model_step(eval=True)
+        return {"loss": valid_loss}
+
+    def init_config(self, ray_config=None):
+        """
+            ray config is a dict with {"train": {...}, "model": {...}} parameters that override config.yaml
+        """
+        config = yaml.safe_load(open(f"{cwd}/config.yaml"))
 
         # Load config file from checkpoint, Don't change saved_config.yaml
         if config['load_checkpoint']:
@@ -97,6 +65,12 @@ class Supervisor():
             config['writer_dir'] = log_dir + "/runs"
         self.train_writer = SummaryWriter(config['writer_dir'] + "/train")
         self.valid_writer = SummaryWriter(config['writer_dir'] + "/valid")
+
+        # update with ray config
+        if ray_config:
+            config.update(ray_config["train"])
+            config["model"].update(ray_config["model"])
+
         self.config = config
         self.logger = logger
 
@@ -128,9 +102,9 @@ class Supervisor():
         l2_y_valid = l2_y_data[split_n:365]
 
         self.x_scaler_minmax = dill.load(
-            open(f"../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
+            open(f"{cwd}/../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
         y_scaler_minmax = dill.load(
-            open(f"../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
+            open(f"{cwd}/../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
 
         # Change to first 26 variables
         y_scaler_minmax.min = y_scaler_minmax.min[:26]
@@ -157,7 +131,7 @@ class Supervisor():
             f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}")
         self.scaler = torch.cuda.amp.GradScaler()
 
-    def step(self, eval):
+    def model_step(self, eval):
         start = time.time()
         if not eval:
             split = "Train"
@@ -182,7 +156,8 @@ class Supervisor():
         for i, (x_, y_) in enumerate(pbar := tqdm(loader, total=len(loader))):
             n_mb = 9
             # For Tuning
-            rand_idxs = np.random.permutation(np.arange(x_.shape[1] / 144 * n_mb))
+            rand_idxs = np.random.permutation(
+                np.arange(x_.shape[1] / 144 * n_mb))
             x_ = x_[:, rand_idxs]
             y_ = y_[:, rand_idxs]
 
@@ -203,14 +178,15 @@ class Supervisor():
                     x = x[:, idxs, :]
                     y = y[:, idxs, :]
 
-
+                # TODO: make x, y independent of time and space
                 context_idxs, target_idxs = split_context_target(
-                    x, y, self.config['model']['context_percentage_low'], self.config['model']['context_percentage_high'])
+                    x, self.config['model']['context_percentage_low'], self.config['model']['context_percentage_high'], axis=-1)
                 x_context = x[:, context_idxs, :].to(device)
                 y_context = y[:, context_idxs].to(device)
                 x_target = x[:, target_idxs, :].to(device)
                 y_target = y[:, target_idxs].to(device)
                 l2_truth = y_target
+
 
                 with torch.cuda.amp.autocast():
                     l2_output_mu, l2_output_cov, l2_z_mu_c, l2_z_cov_c, l2_z_mu_all, l2_z_cov_all = self.model(
@@ -223,8 +199,7 @@ class Supervisor():
 
                     nll = nll_loss(l2_output_mu, l2_output_cov, l2_truth)
                     mae = mae_loss(l2_output_mu, l2_truth)
-                    kld = kl_div(l2_z_mu_all, l2_z_cov_all,
-                                 l2_z_mu_c, l2_z_cov_c)
+                    kld = kl_div(l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c)
                     loss = nll + mae + kld
 
                     if not eval:
@@ -253,20 +228,19 @@ class Supervisor():
             non_mae_mb /= n_mb
             norm_rmse_mb /= n_mb
 
-            if eval is not False:
-                writer.add_scalar("mse", mse_mb.item(), self.global_batch_idx)
-                writer.add_scalar("mae", mae_mb.item(), self.global_batch_idx)
-                writer.add_scalar("non_mae", non_mae_mb.item(),
+            if not eval:
+                writer.add_scalar("mse", mse.item(), self.global_batch_idx)
+                writer.add_scalar("mae", mae.item(), self.global_batch_idx)
+                writer.add_scalar("norm_rmse", norm_rmse,
                                   self.global_batch_idx)
-                writer.add_scalar("norm_rmse", norm_rmse_mb,
+                writer.add_scalar("non_mae", non_mae.item(),
                                   self.global_batch_idx)
                 writer.flush()
+                self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(
                 f"MSE: {mse_mb.item():.6f} MAE: {mae_mb.item():.6f} NON-MAE: {non_mae_mb.item():.6f}")
-            if not eval:
-                self.global_batch_idx += 1
 
             mae_total += mae_mb.item()
             mse_total += mse_mb.item()
@@ -279,6 +253,14 @@ class Supervisor():
         norm_rmse_total /= (i+1)
         non_norm_rmse_total /= (i+1)
 
+        if eval:
+            writer.add_scalar("mse", mse_total, self.global_batch_idx)
+            writer.add_scalar("mae", mae_total, self.global_batch_idx)
+            writer.add_scalar("norm_rmse", norm_rmse_total,
+                              self.global_batch_idx)
+            writer.add_scalar("non_mae", non_mae_total, self.global_batch_idx)
+            writer.flush()
+
         end = time.time()
         total_time = end - start
 
@@ -289,12 +271,12 @@ class Supervisor():
 
         return non_mae_total
 
-    def train(self):
+    def train_model(self):
         try:
             while True:
-                self.step(eval=False)
+                self.model_step(eval=False)
                 with torch.no_grad():
-                    valid_loss = self.step(eval=True)
+                    valid_loss = self.model_step(eval=True)
 
                 self.config['epoch'] = self.epoch
                 self.config['global_batch_idx'] = self.global_batch_idx
@@ -333,36 +315,58 @@ class Supervisor():
         except KeyboardInterrupt as e:
             self.logger.info("Interrupted")
 
-    def hyper_tune(self, max_epochs, hyper_params, hyper_model_params):
-        self.config.update(hyper_params)
-        self.config["model"].update(hyper_model_params)
-        with SeedContext(seed):
-            self.init_model()
-            best_loss = 100000
-            self.logger.info("Tuning: " + str(hyper_params) +
-                             " " + str(hyper_model_params))
 
-            self.epoch = 0
-            for e in range(max_epochs):
-                self.step(eval=False)
-                with torch.no_grad():
-                    valid_loss = self.step(eval=True)
-                if valid_loss < best_loss:
-                    best_loss = valid_loss
-                self.epoch += 1
-            self.logger.info("Tuning loss: " + str(best_loss))
+def main():
+    if TUNE:
+        num_samples = 30
+        max_iter = 2
+        param_space = {
+            "train": {
+                "lr": tune.qloguniform(1e-6, 1e-3, 1e-6),
+                "batch_dropout": tune.uniform(0, 0.5),
+                "weight_decay": tune.uniform(0, 0.2),
+                # "decay_steps": 10,
+                # "decay_rate": 0.9
+            },
+            "model": {
+                "hidden_layers": tune.choice([3, 5, 7]),
+                "z_hidden_layers": tune.choice([3, 5, 7]),
+                "z_hidden_dim": tune.choice([32, 64, 96]),
+                "z_dim": tune.choice([64, 96, 128, 160]),
+                "hidden_dim": tune.choice([32, 64, 96])
+            },
+        }
+        tuner = tune.Tuner(
+            tune.with_resources(Supervisor, {"cpu": 1, "gpu": 0.5}),
+            tune_config=tune.TuneConfig(
+                scheduler=tune.schedulers.ASHAScheduler(
+                    mode="min", metric="loss", max_t=max_iter),
+                num_samples=num_samples,
+            ),
+            run_config=air.RunConfig(
+                local_dir="./ray_results",
+                stop={"training_iteration": max_iter},
+                verbose=3,
+                checkpoint_config=air.CheckpointConfig(
+                    checkpoint_at_end=False
+                ),
+            ),
+            param_space=param_space,
+        )
+        results = tuner.fit()
+    else:
+        set_seed(seed)
+        supervisor = Supervisor()
+        supervisor.init_config()
+        supervisor.init_dataloader()
+        supervisor.init_model()
+        supervisor.init_checkpoint()
 
-            if best_loss < self.tune_best_loss:
-                self.tune_best_loss = best_loss
-                self.best_results = {
-                    "hyper_params": hyper_params,
-                    "hyper_model_params": hyper_model_params,
-                    "loss": best_loss
-                }
+        supervisor.train_model()
 
 
 if __name__ == "__main__":
-    tune = False
+    TUNE = False
 
     seed = 0
     # parser = argparse.ArgumentParser()
@@ -370,39 +374,6 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     # seed = args.seed
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 
-    with SeedContext(seed):
-        supervisor = Supervisor(tune)
-
-    def qloguniform(low, high, base, q):
-        return np.power(base, np.random.uniform(low, high)) // q * q
-
-    # Hyper parameter tuning
-    if tune:
-        num_samples = 30
-        max_epochs = 2
-
-        try:
-            for i in range(num_samples):
-                with SeedContext(np.random.randint(1000)):
-                    hyper_config = {
-                        "weight_decay": np.random.uniform(0, 0.1),
-                        "lr": qloguniform(-6, -3, 7, 1e-6),
-                    }
-                    hyper_model_config = {
-                        "num_heads": int(np.random.choice([4, 8, 16])),
-                        "attention_layers": np.random.choice([4, 8, 12]),
-                        "n_embd": int(np.random.choice([32, 48, 64, 96, 128])),
-                        "hidden_dim": np.random.choice([32, 64, 96, 128, 160]),
-                        "dropout": np.random.uniform(0, 0.4),
-                    }
-                supervisor.hyper_tune(
-                    max_epochs, hyper_config, hyper_model_config)
-        except Exception as e:
-            print(e)
-        finally:
-            supervisor.logger.info("Best tuning results: " + str(supervisor.best_results))
-
-    else:
-        supervisor.train()
+    main()

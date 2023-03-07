@@ -337,7 +337,7 @@ def main():
 
 
 if __name__ == "__main__":
-    TUNE = True
+    TUNE = False
 
     seed = 0
     # parser = argparse.ArgumentParser()
