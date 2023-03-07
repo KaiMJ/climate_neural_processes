@@ -97,8 +97,8 @@ class Supervisor(tune.Trainable):
 
         n = 365
         split_n = int(n*0.8)
-        l2_x_train = l2_x_data[:split_n][::4]
-        l2_y_train = l2_y_data[:split_n][::4]
+        l2_x_train = l2_x_data[:split_n]
+        l2_y_train = l2_y_data[:split_n]
         l2_x_valid = l2_x_data[split_n:n]
         l2_y_valid = l2_y_data[split_n:n]
 

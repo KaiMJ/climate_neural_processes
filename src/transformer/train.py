@@ -220,28 +220,32 @@ class Supervisor(tune.Trainable):
                 non_mae_mb += non_mae
                 norm_rmse_mb += norm_rmse
 
-            if eval is not False:
-                writer.add_scalar("mse", mse_mb.item() /
-                                  n_mb, self.global_batch_idx)
-                writer.add_scalar("mae", mae_mb.item() /
-                                  n_mb, self.global_batch_idx)
-                writer.add_scalar(
-                    "non_mae", non_mae_mb.item() / n_mb, self.global_batch_idx)
-                writer.add_scalar("norm_rmse", norm_rmse_mb /
-                                  n_mb, self.global_batch_idx)
+            if not eval:
+                writer.add_scalar("mse", mse.item(), self.global_batch_idx)
+                writer.add_scalar("mae", mae.item(), self.global_batch_idx)
+                writer.add_scalar("norm_rmse", norm_rmse,
+                                  self.global_batch_idx)
+                writer.add_scalar("non_mae", non_mae.item(),
+                                  self.global_batch_idx)
                 writer.flush()
+                self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(
                 f"MSE: {mse.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae_total:.6f}")
-            if not eval:
-                self.global_batch_idx += 1
 
         mse_total /= (i+1) * n_mb
         mae_total /= (i+1) * n_mb
         non_mae_total /= (i+1) * n_mb
         norm_rmse_total /= (i+1) * n_mb
         non_norm_rmse_total /= (i+1) * n_mb
+
+        if eval:
+            writer.add_scalar("mse", mse_total, self.global_batch_idx)
+            writer.add_scalar("mae", mae_total, self.global_batch_idx)
+            writer.add_scalar("norm_rmse", norm_rmse_total, self.global_batch_idx)
+            writer.add_scalar("non_mae", non_mae_total, self.global_batch_idx)
+            writer.flush()
 
         end = time.time()
         total_time = end - start

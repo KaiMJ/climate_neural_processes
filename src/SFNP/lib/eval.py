@@ -96,6 +96,9 @@ class Evaluator():
             non_y = self.l2_y_scaler_minmax.inverse_transform(
                 y_target.squeeze().cpu().numpy())
             return non_y, non_y_pred, context_idxs, target_idxs
+        
+    def get_loss(self):
+        path = f"{self.dirpath}/best.pt"
 
     def get_R_stats(self, loader):
         self._get_stats(loader)
