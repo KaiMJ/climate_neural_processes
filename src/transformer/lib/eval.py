@@ -79,23 +79,13 @@ class Evaluator():
 
             x = x.reshape(-1, 1, x.shape[-1]).to(self.device)
             y = y.reshape(-1, 1, y.shape[-1]).to(self.device)
-            context_idxs, target_idxs = split_context_target(
-                x, self.config['context_percentage_low'], self.config['context_percentage_high'])
-
-            x_context = x[context_idxs]
-            y_context = y[context_idxs]
-            x_target = x[target_idxs]
-            y_target = y[target_idxs]
 
             with torch.cuda.amp.autocast():
-                l2_output_mu, l2_output_cov, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(
-                    x_context, y_context, x_target, x_all=x, y_all=y)
+                l2_output_mu = self.model(x)
 
-            non_y_pred = self.l2_y_scaler_minmax.inverse_transform(
-                l2_output_mu.squeeze().cpu().numpy())
-            non_y = self.l2_y_scaler_minmax.inverse_transform(
-                y_target.squeeze().cpu().numpy())
-            return non_y, non_y_pred, context_idxs, target_idxs
+            non_y_pred = self.l2_y_scaler_minmax.inverse_transform(l2_output_mu.squeeze().cpu().numpy())
+            non_y = self.l2_y_scaler_minmax.inverse_transform(y.squeeze().cpu().numpy())
+            return non_y, non_y_pred
         
     def get_loss(self):
         step_size = len(self.trainloader)
@@ -126,7 +116,7 @@ class Evaluator():
 
         with torch.no_grad():
             for i, data in enumerate(tqdm(loader, total=len(loader))):
-                non_y, non_y_pred, _, _ = self.forward_pass(data)
+                non_y, non_y_pred = self.forward_pass(data)
                 self.ssxm += ((non_y - self.y_mean)**2).sum(0)
                 self.ssym += ((non_y_pred - self.y_pred_mean)**2).sum(0)
                 self.ssxym += ((non_y - self.y_mean) *
@@ -150,7 +140,7 @@ class Evaluator():
 
         with torch.no_grad():
             for i, data in enumerate(tqdm(loader, total=len(loader))):
-                non_y, non_y_pred, _, _ = self.forward_pass(data)
+                non_y, non_y_pred = self.forward_pass(data)
 
                 non_mae = mae_metric(non_y_pred, non_y, mean=False)
 
@@ -189,25 +179,9 @@ class Evaluator():
             with torch.no_grad():
                 x = x.reshape(24, -1, 1, x.shape[-1])[hour].to(device)
                 y = y.reshape(24, -1, 1, y.shape[-1])[hour].to(device)
-                context_idxs, target_idxs = split_context_target(x, self.config['context_percentage_low'],
-                                                                 self.config['context_percentage_high'])
-
-                x_context = x[context_idxs]
-                y_context = y[context_idxs]
-                # x_target = x[target_idxs]
-                # y_target = y[target_idxs]
-
                 with torch.cuda.amp.autocast():
-                    l2_output_mu, l2_output_cov = self.model(
-                        x_context, y_context, x)
+                    l2_output_mu = self.model(x)
+                non_y_pred = self.l2_y_scaler_minmax.inverse_transform(l2_output_mu.squeeze().cpu().numpy())
+                non_y = self.l2_y_scaler_minmax.inverse_transform(y.squeeze().cpu().numpy())
 
-                non_y_pred = self.l2_y_scaler_minmax.inverse_transform(
-                    l2_output_mu.squeeze().cpu().numpy())
-                non_y_context = self.l2_y_scaler_minmax.inverse_transform(
-                    y_context.squeeze().cpu().numpy())
-                non_y = self.l2_y_scaler_minmax.inverse_transform(
-                    y.squeeze().cpu().numpy())
-
-            return non_y, non_y_context, non_y_pred, context_idxs, target_idxs
-
-        # return self.losses
+            return non_y, non_y_pred

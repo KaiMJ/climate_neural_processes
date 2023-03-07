@@ -180,7 +180,7 @@ class Supervisor(tune.Trainable):
 
                 # TODO: make x, y independent of time and space
                 context_idxs, target_idxs = split_context_target(
-                    x, self.config['model']['context_percentage_low'], self.config['model']['context_percentage_high'], axis=-1)
+                    x, self.config['context_percentage_low'], self.config['context_percentage_high'], axis=-1)
                 x_context = x[:, context_idxs, :].to(device)
                 y_context = y[:, context_idxs].to(device)
                 x_target = x[:, target_idxs, :].to(device)
