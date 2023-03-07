@@ -5,78 +5,87 @@ import numpy as onp
 import datetime
 import calendar
 import paramiko
+import matplotlib.pyplot as plt
+import multiprocessing
 
-# Process raw data from Frontera to npy to ucsd server
+out_dir = "SPCAM5"
 
-out_dir = "data"
 data_dir = '/scratch1/07088/tg863871/CESM2_case/CESM2_NN2_pelayout01_ens_07/CESM2_NN2_pelayout01_ens_07/CESM2_NN2_pelayout01_ens_07.cam.h1.'
-ucsd_dir = "/data/allen/climate_data/SPCAM5/"
+ucsd_dir = "/data/allen/climate_data/"
 
-
-ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect('-', username='-', password='-', allow_agent=False)
-sftp = ssh.open_sftp()
 
 
 class SPCAM5_Frontera_to_npy:
-    def __init__(self):
+    def __init__(self, start_date, end_date, delta):
         self.DT = 30*60
+        self.start_date = start_date
+        self.end_date = end_date
+        self.delta = delta
 
-        self.start_date = datetime.datetime(2003, 4, 1)
-        self.end_date = datetime.datetime(2005, 3, 28)
-        self.delta = datetime.timedelta(days=1)
         self.extensions = ["-00000.nc",  "-28800.nc", "-57600.nc"]
 
-    def process_data(self):
-        date_lists = self.get_all_dates(
-            self.start_date, self.end_date, self.delta)
 
-        # For each data in range
-        for date_idx in range(len(date_lists)):
-            date_str, n_days = date_lists[date_idx]
-            up_to_date = datetime.datetime.strptime(date_str, '%Y-%m-%d')
-            if self.delta.days == 1:
-                n = 1
-            else:
-                n = n_days
-            for i in range(-n+1, 1):
-                curr_date = up_to_date + datetime.timedelta(days=i)
-                curr_date_str = curr_date.strftime("%Y-%m-%d")
+    def process_data(self, data):
+        # try:
+        # ssh for each multiprocessing
+        ssh = paramiko.SSHClient()
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.connect('-', username='-', password='-', allow_agent=False)
+        sftp = ssh.open_sftp()
 
-                inputs, outputs = None, None
-                for ext in self.extensions:
-                    ds = nc.Dataset(data_dir+curr_date_str+ext)
+        date_str, n_days = data
+        up_to_date = datetime.datetime.strptime(date_str, '%Y-%m-%d')
+        if self.delta.days == 1:
+            n = 1
+        else:
+            n = n_days
+        for i in range(-n+1, 1):
+            curr_date = up_to_date + datetime.timedelta(days=i)
+            curr_date_str = curr_date.strftime("%Y-%m-%d")
 
-                    self.lat = ds.dimensions['lat'].size
-                    self.time = ds.dimensions['time'].size
-                    self.lon = ds.dimensions['lon'].size
-                    self.lev = ds.dimensions['lev'].size
+            inputs, outputs = None, None
+            for ext in self.extensions:
+                ds = nc.Dataset(data_dir+curr_date_str+ext)
 
-                    np_inputs, np_outputs = self.format_NC_dataset(ds)
+                self.lat = ds.dimensions['lat'].size
+                self.time = ds.dimensions['time'].size
+                self.lon = ds.dimensions['lon'].size
+                self.lev = ds.dimensions['lev'].size
 
-                    if inputs is None:
-                        inputs = np_inputs
-                        outputs = np_outputs
-                    else:
-                        inputs = onp.concatenate((inputs, np_inputs), axis=0)
-                        outputs = onp.concatenate(
-                            (outputs, np_outputs), axis=0)
-            print("Processed", data_dir+curr_date_str+ext)
+                np_inputs, np_outputs = self.format_NC_dataset(ds)
 
-            inp_path = f'{out_dir}/inputs_{date_str}.npy'
-            out_path = f'{out_dir}/outputs_{date_str}.npy'
+                if inputs is None:
+                    inputs = np_inputs
+                    outputs = np_outputs
+                else:
+                    inputs = onp.concatenate((inputs, np_inputs), axis=0)
+                    outputs = onp.concatenate(
+                        (outputs, np_outputs), axis=0)
+        print("Processed", data_dir+curr_date_str+ext)
 
-            onp.save(inp_path, inputs)
-            onp.save(out_path, outputs)
+        inp_path = f'{out_dir}/inputs_{date_str}.npy' 
+        out_path = f'{out_dir}/outputs_{date_str}.npy'
 
-            sftp.put(inp_path, os.path.join(ucsd_dir, inp_path))
-            sftp.put(out_path, os.path.join(ucsd_dir, out_path))
+        # Index out solar insolation to match CAM5 dataset
+        inputs = inputs.reshape(-1, 96, 144, 108)[1::2, :].reshape(-1, 108)
+        outputs = outputs.reshape(-1, 96, 144, 112)[1::2, :].reshape(-1, 112)
 
-            os.remove(inp_path)
-            os.remove(out_path)
-            print(f"SSH {inp_path}", 'train data shape: ',
-                  inputs.shape, outputs.shape)
+        onp.save(inp_path, inputs)
+        onp.save(out_path, outputs)
+    
+        sftp.put(inp_path, os.path.join(ucsd_dir, inp_path))
+        sftp.put(out_path, os.path.join(ucsd_dir, out_path))
+
+        os.remove(inp_path)
+        os.remove(out_path)
+        print(f"SSH {inp_path}", 'train data shape: ', inputs.shape, outputs.shape)
+
+        sftp.close()
+        ssh.close()
+        # except Exception as e:
+        #     print(e)
+        #     print("probably a mistake in the date from source")
+                
 
     def get_all_dates(self, start_date, end_date, delta):
         """Returns a list of all dates between start_date and end_date, inclusive.
@@ -157,16 +166,20 @@ class SPCAM5_Frontera_to_npy:
                                    NN2L_FLWDS, NN2L_NETSW, NN2L_PRECC, NN2L_PRECSC,
                                    NN2L_SOLL, NN2L_SOLLD, NN2L_SOLS, NN2L_SOLSD)).T
 
-        # Index out solar insolation to match CAM5 dataset
-
-        idxs = onp.arange(1, len(inputs), 2)
-        inputs = inputs[idxs, :]
-        outputs = outputs[idxs, :]
         return inputs, outputs
 
 
-convertor = SPCAM5_Frontera_to_npy()
-convertor.process_data()
+if __name__ == "__main__":
+    # start_date = datetime.datetime(2004, 4, 1)
+    start_date = datetime.datetime(2004, 5, 11)
+    end_date = datetime.datetime(2005, 3, 28)
+    delta = datetime.timedelta(days=1)
+    convertor = SPCAM5_Frontera_to_npy(start_date, end_date, delta)
 
-sftp.close()
-ssh.close()
+    # convertor.process_data()
+    date_lists = convertor.get_all_dates(convertor.start_date, convertor.end_date, convertor.delta)
+
+    # For each data in range
+    with multiprocessing.Pool(processes=10) as pool:
+        pool.map(convertor.process_data, date_lists)
+
