@@ -205,7 +205,7 @@ class Supervisor(tune.Trainable):
             norm_rmse_total += norm_rmse
             non_mae_total += non_mae.item()
 
-            if eval is not False:
+            if not eval:
                 writer.add_scalar("mse", mse.item(), self.global_batch_idx)
                 writer.add_scalar("mae", mae.item(), self.global_batch_idx)
                 writer.add_scalar("norm_rmse", norm_rmse,
@@ -213,18 +213,24 @@ class Supervisor(tune.Trainable):
                 writer.add_scalar("non_mae", non_mae.item(),
                                   self.global_batch_idx)
                 writer.flush()
+                self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(
                 f"MSE: {mse.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
-            if not eval:
-                self.global_batch_idx += 1
 
         mse_total /= i+1
         mae_total /= i+1
         non_mae_total /= i+1
         norm_rmse_total /= i+1
         non_norm_rmse_total /= i+1
+
+        if eval:
+            writer.add_scalar("mse", mse_total, self.global_batch_idx)
+            writer.add_scalar("mae", mae_total, self.global_batch_idx)
+            writer.add_scalar("norm_rmse", norm_rmse_total, self.global_batch_idx)
+            writer.add_scalar("non_mae", non_mae_total, self.global_batch_idx)
+            writer.flush()
 
         end = time.time()
         total_time = end - start
