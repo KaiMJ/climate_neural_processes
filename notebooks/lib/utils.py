@@ -1,33 +1,5 @@
-"""
-    Make_dir function,
-    MinMax and Standard scaler,
-    Sorting functions,
-    Logger,
-    Save and load progress
-"""
-
-import torch
-import datetime
-import logging
-import os
 import warnings
 import numpy as np
-import sys
-
-def split_context_target(x, context_percentage_low, context_percentage_high, axis=0):
-    """Helper function to split randomly into context and target"""
-    context_percentage = np.random.uniform(
-        context_percentage_low, context_percentage_high)
-    n_context = int(x.shape[axis]*context_percentage)
-    ind = np.arange(x.shape[axis])
-    context_idxs = np.random.choice(ind, size=n_context, replace=False)
-    target_idxs = np.delete(ind, context_idxs)
-
-    return context_idxs, target_idxs
-
-def make_dir(name):
-    if not os.path.exists(name):
-        os.makedirs(name)
 
 class MinMaxScaler:
     """
@@ -96,30 +68,3 @@ class StandardScaler:
 
     def inverse_transform(self, data):
         return data * self.std + self.mean
-
-
-def sort_fn(filename):
-    date_string = filename[-14:-4]
-    datetime_object = datetime.datetime.strptime(date_string, "%Y-%m-%d")
-    return datetime_object
-
-
-# Change level for "DEBUG"
-def get_logger(log_dir=".", name="log", level="INFO", log_filename="info.log"):
-    make_dir(log_dir)
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-
-    # Reset
-    logger.handlers = []
-    # Format message
-    formatter = logging.Formatter('%(asctime)s - %(name)s: %(message)s')
-    # Handler for file output
-    file_handler = logging.FileHandler(os.path.join(log_dir, log_filename))
-    file_handler.setFormatter(formatter)
-    # Handler for terminal output
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-    return logger
