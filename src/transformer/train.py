@@ -103,24 +103,28 @@ class Supervisor(tune.Trainable):
         l2_x_valid = l2_x_data[split_n:365]
         l2_y_valid = l2_y_data[split_n:365]
 
-        self.x_scaler_minmax = dill.load(
+        x_scaler_minmax = dill.load(
             open(f"{cwd}/../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
         y_scaler_minmax = dill.load(
             open(f"{cwd}/../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
 
-        # Change to first 26 variables
-        y_scaler_minmax.min = y_scaler_minmax.min[:26]
-        y_scaler_minmax.max = y_scaler_minmax.max[:26]
+         # Change to first 26 variables
+        # Follow Azis's process. X -> X/(max(abs(X))
+        x_scaler_minmax.min = x_scaler_minmax.min * 0
+        x_scaler_minmax.max = np.abs(x_scaler_minmax.max)
+        y_scaler_minmax.min = y_scaler_minmax.min[:26] * 0
+        y_scaler_minmax.max = np.abs(y_scaler_minmax.max[:26])       # Change to first 26 variables
+        self.x_scaler_minmax = x_scaler_minmax
+        self.y_scaler_minmax = y_scaler_minmax
 
         train_dataset = l2Dataset(
-            l2_x_train, l2_y_train, x_scaler=self.x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
+            l2_x_train, l2_y_train, x_scaler=x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
         self.train_loader = DataLoader(
             train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=4, pin_memory=True)
         val_dataset = l2Dataset(
-            l2_x_valid, l2_y_valid, x_scaler=self.x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
+            l2_x_valid, l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
         self.val_loader = DataLoader(
             val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=4, pin_memory=True)
-        self.y_scaler_minmax = y_scaler_minmax
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)

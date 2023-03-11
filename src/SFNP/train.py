@@ -109,8 +109,13 @@ class Supervisor(tune.Trainable):
             open(f"{cwd}/../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
 
         # Change to first 26 variables
-        y_scaler_minmax.min = y_scaler_minmax.min[:26]
-        y_scaler_minmax.max = y_scaler_minmax.max[:26]
+        # Follow Azis's process. X -> X/(max(abs(X))
+        x_scaler_minmax.min = x_scaler_minmax.min * 0
+        x_scaler_minmax.max = np.abs(x_scaler_minmax.max)
+        y_scaler_minmax.min = y_scaler_minmax.min[:26] * 0
+        y_scaler_minmax.max = np.abs(y_scaler_minmax.max[:26])
+        self.x_scaler_minmax = x_scaler_minmax
+        self.y_scaler_minmax = y_scaler_minmax
 
         # y_scaler_minmax = None
         # x_scaler_minmax = None
@@ -123,9 +128,6 @@ class Supervisor(tune.Trainable):
             l2_x_valid, l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
         self.val_loader = DataLoader(
             val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=4, pin_memory=True)
-
-        self.y_scaler_minmax = y_scaler_minmax
-        self.x_scaler_minmax = x_scaler_minmax
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
