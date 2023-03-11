@@ -264,19 +264,7 @@ class Model(nn.Module):
         self.latent_encoder = LatentEncoder(config)
         self.deterministic_encoder = DeterministicEncoder(config)
         self.decoder = Decoder(config)
-        self.context_percentage_low = config['context_percentage_low']
-        self.context_percentage_high = config['context_percentage_high']
 
-    def split_context_target(self, x, y, context_percentage_low, context_percentage_high):
-        """Helper function to split randomly into context and target"""
-        context_percentage = np.random.uniform(
-            context_percentage_low, context_percentage_high)
-        n_context = int(x.shape[1]*context_percentage)
-        ind = np.arange(x.shape[1])
-        mask = np.random.choice(ind, size=n_context, replace=False)
-        others = np.delete(ind, mask)
-
-        return mask, others
     def forward(self, x_context, y_context, x_target, y_target=None):
         l2_z_mu_c, l2_z_cov_c, z = self.latent_encoder(x_context, y_context)
 

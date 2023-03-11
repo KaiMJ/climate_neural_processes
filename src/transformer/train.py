@@ -16,6 +16,7 @@ from lib.utils import *
 from lib.loss import *
 from lib.dataset import *
 from lib.model import Model
+from scipy.stats import linregress
 
 cwd = os.getcwd()
 
@@ -148,6 +149,7 @@ class Supervisor(tune.Trainable):
         non_mae_total = 0
         norm_rmse_total = 0
         non_norm_rmse_total = 0
+        r2_mean_total = 0
 
         if not eval:
             self.model.train()
@@ -161,6 +163,7 @@ class Supervisor(tune.Trainable):
             mse_mb = 0
             non_mae_mb = 0
             norm_rmse_mb = 0
+            r2_mean_mb = 0
 
             # Positional embedding
             # x_idxs, y_idxs = np.meshgrid(np.arange(96), np.arange(144))
@@ -205,53 +208,69 @@ class Supervisor(tune.Trainable):
                 mse = mse_loss(l2_output_mu, y, mean=True).detach()
                 norm_rmse = norm_rmse_loss(l2_output_mu, y).detach()
                 non_y_pred = self.y_scaler_minmax.inverse_transform(
-                    l2_output_mu.unsqueeze(1).detach().cpu().numpy())
+                    l2_output_mu.squeeze().detach().cpu().numpy())
                 non_y = self.y_scaler_minmax.inverse_transform(
-                    y.unsqueeze(1).detach().cpu().numpy())
+                    y.squeeze().detach().cpu().numpy())
                 non_mae = mae_metric(non_y_pred, non_y)
-
-                mse_total += mse.item()
-                mae_total += mae.item()
-                norm_rmse_total += norm_rmse
-                non_mae_total += non_mae.item()
+                r2_mean = 0
+                for v in range(non_y.shape[-1]):
+                    result = linregress(non_y[:, v], non_y_pred[:, v])
+                    r2_mean += result.rvalue ** 2
+                r2_mean = r2_mean / (non_y_pred.shape[-1])
 
                 mae_mb += mae
                 mse_mb += mse
                 non_mae_mb += non_mae
                 norm_rmse_mb += norm_rmse
+                r2_mean_mb += r2_mean
+
+            mae_mb /= n_mb
+            mse_mb /= n_mb
+            non_mae_mb /= n_mb
+            norm_rmse_mb /= n_mb
+            r2_mean_mb /= n_mb
 
             if not eval:
-                writer.add_scalar("mse", mse.item(), self.global_batch_idx)
-                writer.add_scalar("mae", mae.item(), self.global_batch_idx)
-                writer.add_scalar("norm_rmse", norm_rmse,
+                writer.add_scalar("mse", mse_mb.item(), self.global_batch_idx)
+                writer.add_scalar("mae", mae_mb.item(), self.global_batch_idx)
+                writer.add_scalar("norm_rmse", norm_rmse_mb,
                                   self.global_batch_idx)
-                writer.add_scalar("non_mae", non_mae.item(),
+                writer.add_scalar("non_mae", non_mae_mb.item(),
                                   self.global_batch_idx)
+                writer.add_scalar("r2", r2_mean_mb, self.global_batch_idx)
                 writer.flush()
                 self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(
-                f"MSE: {mse.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae_total:.6f}")
+                f"R2: {r2_mean_mb.item():.6f} MAE: {mae_mb.item():.6f} NON-MAE: {non_mae_mb.item():.6f}")
 
-        mse_total /= (i+1) * n_mb
-        mae_total /= (i+1) * n_mb
-        non_mae_total /= (i+1) * n_mb
-        norm_rmse_total /= (i+1) * n_mb
-        non_norm_rmse_total /= (i+1) * n_mb
+            mse_total += mae_mb
+            mae_total += mae.item()
+            norm_rmse_total += norm_rmse
+            non_mae_total += non_mae.item()
+            r2_mean_mb += r2_mean
+
+        mse_total /= (i+1) 
+        mae_total /= (i+1) 
+        non_mae_total /= (i+1) 
+        norm_rmse_total /= (i+1) 
+        non_norm_rmse_total /= (i+1) 
+        r2_mean_total /= (i+1) 
 
         if eval:
             writer.add_scalar("mse", mse_total, self.global_batch_idx)
             writer.add_scalar("mae", mae_total, self.global_batch_idx)
             writer.add_scalar("norm_rmse", norm_rmse_total, self.global_batch_idx)
             writer.add_scalar("non_mae", non_mae_total, self.global_batch_idx)
+            writer.add_scalar("r2", r2_mean_total, self.global_batch_idx)
             writer.flush()
 
         end = time.time()
         total_time = end - start
 
         self.logger.info(
-            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}"
+            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - R2: {r2_mean_total:.6f} NON-MAE: {non_mae_total:.6f}"
             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}"
             + f"LR: {self.scheduler.get_last_lr()[0]:6f}")
 

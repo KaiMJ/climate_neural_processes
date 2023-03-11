@@ -16,6 +16,7 @@ import os
 import dill
 import time
 import argparse
+from scipy.stats import linregress
 
 cwd = os.getcwd()
 
@@ -102,7 +103,7 @@ class Supervisor(tune.Trainable):
         l2_x_valid = l2_x_data[split_n:n]
         l2_y_valid = l2_y_data[split_n:n]
 
-        self.x_scaler_minmax = dill.load(
+        x_scaler_minmax = dill.load(
             open(f"{cwd}/../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
         y_scaler_minmax = dill.load(
             open(f"{cwd}/../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
@@ -111,15 +112,20 @@ class Supervisor(tune.Trainable):
         y_scaler_minmax.min = y_scaler_minmax.min[:26]
         y_scaler_minmax.max = y_scaler_minmax.max[:26]
 
+        # y_scaler_minmax = None
+        # x_scaler_minmax = None
+
         train_dataset = l2Dataset(
-            l2_x_train, l2_y_train, x_scaler=self.x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
+            l2_x_train, l2_y_train, x_scaler=x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
         self.train_loader = DataLoader(
             train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=4, pin_memory=True)
         val_dataset = l2Dataset(
-            l2_x_valid, l2_y_valid, x_scaler=self.x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
+            l2_x_valid, l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
         self.val_loader = DataLoader(
             val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=4, pin_memory=True)
+
         self.y_scaler_minmax = y_scaler_minmax
+        self.x_scaler_minmax = x_scaler_minmax
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
@@ -148,6 +154,7 @@ class Supervisor(tune.Trainable):
         non_mae_total = 0
         norm_rmse_total = 0
         non_norm_rmse_total = 0
+        r2_total = 0
 
         if not eval:
             self.model.train()
@@ -181,6 +188,7 @@ class Supervisor(tune.Trainable):
                 mae = mae_loss(l2_output_mu, y_target)
                 kld = kld_gaussian_loss(
                     l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c)
+                
 
                 loss = nll + mae + kld
 
@@ -195,15 +203,28 @@ class Supervisor(tune.Trainable):
             mse = mse_loss(l2_output_mu, y_target, mean=True).detach()
             norm_rmse = norm_rmse_loss(l2_output_mu, y_target).detach()
             non_y_pred = self.y_scaler_minmax.inverse_transform(
-                l2_output_mu.unsqueeze(1).detach().cpu().numpy())
+                l2_output_mu.squeeze().detach().cpu().numpy())
             non_y = self.y_scaler_minmax.inverse_transform(
-                y_target.unsqueeze(1).detach().cpu().numpy())
-            non_mae = mae_metric(non_y_pred, non_y)
+                y_target.squeeze().detach().cpu().numpy())
 
+            # If you want to use the original data
+            # non_y_pred = l2_output_mu.squeeze().detach().cpu().numpy()
+            # non_y = y_target.squeeze().detach().cpu().numpy()
+
+            r2_mean = 0
+            mb_size = 16 # linregress could not load every value. Approximates R2.
+            for v in range(non_y_pred.shape[-1]):
+                for mb in range(mb_size):
+                    result = linregress(non_y[mb::mb_size, v], non_y_pred[mb::mb_size, v])
+                    r2_mean += result.rvalue ** 2
+            r2_mean = r2_mean / (non_y_pred.shape[-1] * mb_size)
+
+            non_mae = mae_metric(non_y_pred, non_y)
             mse_total += mse.item()
             mae_total += mae.item()
             norm_rmse_total += norm_rmse
             non_mae_total += non_mae.item()
+            r2_total += r2_mean
 
             if not eval:
                 writer.add_scalar("mse", mse.item(), self.global_batch_idx)
@@ -212,31 +233,34 @@ class Supervisor(tune.Trainable):
                                   self.global_batch_idx)
                 writer.add_scalar("non_mae", non_mae.item(),
                                   self.global_batch_idx)
+                writer.add_scalar("r2", r2_mean, self.global_batch_idx)
                 writer.flush()
                 self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(
-                f"MSE: {mse.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
+                f"R2: {r2_mean:.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
 
         mse_total /= i+1
         mae_total /= i+1
         non_mae_total /= i+1
         norm_rmse_total /= i+1
         non_norm_rmse_total /= i+1
+        r2_total /= i+1
 
         if eval:
             writer.add_scalar("mse", mse_total, self.global_batch_idx)
             writer.add_scalar("mae", mae_total, self.global_batch_idx)
             writer.add_scalar("norm_rmse", norm_rmse_total, self.global_batch_idx)
             writer.add_scalar("non_mae", non_mae_total, self.global_batch_idx)
+            writer.add_scalar("r2", r2_total, self.global_batch_idx)
             writer.flush()
 
         end = time.time()
         total_time = end - start
 
         self.logger.info(
-            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}"
+            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f} R2: {r2_total}"
             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}"
             + f" LR: {self.scheduler.get_last_lr()[0]:6f}")
 

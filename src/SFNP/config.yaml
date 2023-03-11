@@ -4,7 +4,7 @@ data_dir: /home/mkim/Nserver/climate_processes/data
 log_dir: logs
 
 batch_size: 1
-lr: 0.000909
+lr: 0.00000909
 global_batch_idx: 0
 batch_dropout: 0.345198
 

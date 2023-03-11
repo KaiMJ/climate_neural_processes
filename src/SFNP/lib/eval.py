@@ -203,11 +203,9 @@ class Evaluator():
 
                 non_y_pred = self.l2_y_scaler_minmax.inverse_transform(
                     l2_output_mu.squeeze().cpu().numpy())
-                non_y_context = self.l2_y_scaler_minmax.inverse_transform(
-                    y_context.squeeze().cpu().numpy())
                 non_y = self.l2_y_scaler_minmax.inverse_transform(
                     y.squeeze().cpu().numpy())
 
-            return non_y, non_y_context, non_y_pred, context_idxs, target_idxs
+            return non_y, non_y_pred, context_idxs, target_idxs
 
         # return self.losses

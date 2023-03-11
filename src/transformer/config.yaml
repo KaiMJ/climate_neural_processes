@@ -1,6 +1,6 @@
 title: transformer_train
 
-data_dir: /data/allen/climate_data
+data_dir: /home/mkim/Nserver/climate_processes/data
 log_dir: logs
 
 batch_size: 1

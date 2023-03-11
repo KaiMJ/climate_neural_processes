@@ -1,6 +1,7 @@
 title: sfattn_train
 
 data_dir: /home/mkim/Nserver/climate_processes/data
+# /dta/allen/climate_data
 log_dir: logs
 
 batch_size: 1
@@ -33,4 +34,4 @@ model:
   hidden_layers: 3
 
 
-load_checkpoint: 
+load_checkpoint: false

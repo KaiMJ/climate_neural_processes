@@ -15,6 +15,7 @@ import os
 import dill
 import time
 import argparse
+from scipy.stats import linregress
 
 cwd = os.getcwd()
 
@@ -112,6 +113,8 @@ class Supervisor(tune.Trainable):
 
         train_dataset = l2Dataset(
             l2_x_train, l2_y_train, x_scaler=self.x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
+        # train_dataset = l2Dataset(
+        #     l2_x_train, l2_y_train, variables=26)
         self.train_loader = DataLoader(
             train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=4, pin_memory=True)
         val_dataset = l2Dataset(
@@ -147,6 +150,7 @@ class Supervisor(tune.Trainable):
         non_mae_total = 0
         norm_rmse_total = 0
         non_norm_rmse_total = 0
+        r2_mean_total = 0
 
         if not eval:
             self.model.train()
@@ -155,17 +159,13 @@ class Supervisor(tune.Trainable):
 
         for i, (x_, y_) in enumerate(pbar := tqdm(loader, total=len(loader))):
             n_mb = 9
-            # For Tuning
-            rand_idxs = np.random.permutation(
-                np.arange(x_.shape[1] / 144 * n_mb))
-            x_ = x_[:, rand_idxs]
-            y_ = y_[:, rand_idxs]
 
             # mini batch gradients
             mae_mb = 0
             mse_mb = 0
             non_mae_mb = 0
             norm_rmse_mb = 0
+            r2_mean_mb = 0
 
             # TODO: make mini batches random
             for bg_idx in range(n_mb):
@@ -213,20 +213,28 @@ class Supervisor(tune.Trainable):
                 mse = mse_loss(l2_output_mu, l2_truth, mean=True).detach()
                 norm_rmse = norm_rmse_loss(l2_output_mu, l2_truth).detach()
                 non_y_pred = self.y_scaler_minmax.inverse_transform(
-                    l2_output_mu.unsqueeze(1).detach().cpu().numpy())
+                    l2_output_mu.squeeze().detach().cpu().numpy())
                 non_y = self.y_scaler_minmax.inverse_transform(
-                    l2_truth.unsqueeze(1).detach().cpu().numpy())
+                    l2_truth.squeeze().detach().cpu().numpy())
                 non_mae = mae_metric(non_y_pred, non_y)
+
+                r2_mean = 0
+                for v in range(non_y.shape[-1]):
+                    result = linregress(non_y[:, v], non_y_pred[:, v])
+                    r2_mean += result.rvalue ** 2
+                r2_mean = r2_mean / (non_y_pred.shape[-1])
 
                 mae_mb += mae
                 mse_mb += mse
                 non_mae_mb += non_mae
                 norm_rmse_mb += norm_rmse
+                r2_mean_mb += r2_mean
 
             mae_mb /= n_mb
             mse_mb /= n_mb
             non_mae_mb /= n_mb
             norm_rmse_mb /= n_mb
+            r2_mean_mb /= n_mb
 
             if not eval:
                 writer.add_scalar("mse", mse.item(), self.global_batch_idx)
@@ -235,23 +243,26 @@ class Supervisor(tune.Trainable):
                                   self.global_batch_idx)
                 writer.add_scalar("non_mae", non_mae.item(),
                                   self.global_batch_idx)
+                writer.add_scalar("r2_mean", r2_mean_mb, self.global_batch_idx)
                 writer.flush()
                 self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(
-                f"MSE: {mse_mb.item():.6f} MAE: {mae_mb.item():.6f} NON-MAE: {non_mae_mb.item():.6f}")
+                f"R2: {r2_mean_mb:.6f} MAE: {mae_mb.item():.6f} NON-MAE: {non_mae_mb.item():.6f}")
 
             mae_total += mae_mb.item()
             mse_total += mse_mb.item()
             norm_rmse_total += norm_rmse_mb
             non_mae_total += non_mae_mb.item()
+            r2_mean_total += r2_mean_mb
 
         mse_total /= (i+1)
         mae_total /= (i+1)
         non_mae_total /= (i+1)
         norm_rmse_total /= (i+1)
         non_norm_rmse_total /= (i+1)
+        r2_mean_total /= (i+1)
 
         if eval:
             writer.add_scalar("mse", mse_total, self.global_batch_idx)
@@ -259,13 +270,14 @@ class Supervisor(tune.Trainable):
             writer.add_scalar("norm_rmse", norm_rmse_total,
                               self.global_batch_idx)
             writer.add_scalar("non_mae", non_mae_total, self.global_batch_idx)
+            writer.add_scalar("r2_mean", r2_mean_total, self.global_batch_idx)
             writer.flush()
 
         end = time.time()
         total_time = end - start
 
         self.logger.info(
-            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}"
+            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - R2: {r2_mean_total:.6f} NON-MAE: {non_mae_total:.6f}"
             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}"
             + f" LR: {self.scheduler.get_last_lr()[0]:6f}")
 
@@ -337,7 +349,7 @@ def main():
             },
         }
         tuner = tune.Tuner(
-            tune.with_resources(Supervisor, {"cpu": 1, "gpu": 0.5}),
+            tune.with_resources(Supervisor, {"cpu": 1, "gpu": 1}),
             tune_config=tune.TuneConfig(
                 scheduler=tune.schedulers.ASHAScheduler(
                     mode="min", metric="loss", max_t=max_iter),
@@ -375,5 +387,7 @@ if __name__ == "__main__":
     # seed = args.seed
 
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
+
+    # CUDA_VISIBLE_DEVICES=1,2,3,5 python train.py
 
     main()

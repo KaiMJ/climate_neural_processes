@@ -116,7 +116,7 @@ class Evaluator():
                         (non_y_all, non_y), axis=0) if non_y_all is not None else non_y
                     non_y_pred_all = np.concatenate(
                         (non_y_pred_all, non_y_pred), axis=0) if non_y_pred_all is not None else non_y_pred
-                break
+                # break
             return non_y, non_y_pred, context_idxs, target_idxs
 
     def get_loss(self):
