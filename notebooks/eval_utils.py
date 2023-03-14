@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import DataLoader
 from SFNP.lib.model import Model as SFNP_Model
 from transformer.lib.model import Model as Transformer_Model
-from MFNP.model import Model as MFNP_Model
+from MFNP.lib.model import Model as MFNP_Model
 from SF_Attn.lib.model import Model as SF_Attn_Model
 import os, yaml, glob, dill
 from tqdm import tqdm

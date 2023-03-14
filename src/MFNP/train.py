@@ -1,7 +1,6 @@
-import sys
-sys.path.append('..')
-sys.path.append('.')
-from model import Model
+import os
+from ray import tune, air
+from lib.model import Model
 from lib.dataset import *
 from lib.loss import *
 from lib.utils import *
@@ -15,41 +14,35 @@ import yaml
 import glob
 import os
 import dill
-import random
 import time
 import argparse
+from scipy.stats import linregress
+
+cwd = os.getcwd()
 
 
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+class Supervisor(tune.Trainable):
+    """
+        setup and step is for ray tune.
+    """
 
-class SeedContext:
-    def __init__(self, seed):
-        self.seed = seed
-        self.state = np.random.get_state()
-
-    def __enter__(self):
-        set_seed(self.seed)
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        np.random.set_state(self.state)
-
-class Supervisor():
-
-    def __init__(self, tune=False):
-        self.init_config()
+    def setup(self, config=None):
+        self.init_config(config)
         self.init_dataloader()
-        if tune:
-            self.tune_best_loss = 999999
-        else:
-            self.init_model()
+        self.init_model()
         self.init_checkpoint()
 
-    def init_config(self):
-        config = yaml.safe_load(open("config.yaml"))
+    def step(self):
+        self.model_step(eval=False)
+        with torch.no_grad():
+            valid_loss = self.model_step(eval=True)
+        return {"loss": valid_loss}
+
+    def init_config(self, ray_config=None):
+        """
+            ray config is a dict with {"train": {...}, "model": {...}} parameters that override config.yaml
+        """
+        config = yaml.safe_load(open(f"{cwd}/config.yaml"))
 
         # Load config file from checkpoint, Don't change saved_config.yaml
         if config['load_checkpoint']:
@@ -74,6 +67,12 @@ class Supervisor():
             config['writer_dir'] = log_dir + "/runs"
         self.train_writer = SummaryWriter(config['writer_dir'] + "/train")
         self.valid_writer = SummaryWriter(config['writer_dir'] + "/valid")
+
+        # update with ray config
+        if ray_config:
+            config.update(ray_config["train"])
+            config["model"].update(ray_config["model"])
+
         self.config = config
         self.logger = logger
 
@@ -122,22 +121,32 @@ class Supervisor():
             open(f"../../scalers/y_CAM5_minmax_scaler.dill", 'rb'))
 
         # Change to first 26 variables
-        l2_y_scaler_minmax.min = l2_y_scaler_minmax.min[:26]
-        l2_y_scaler_minmax.max = l2_y_scaler_minmax.max[:26]
-        l1_y_scaler_minmax.min = l1_y_scaler_minmax.min[:26]
-        l1_y_scaler_minmax.max = l1_y_scaler_minmax.max[:26]
+        # Follow Azis's process. X -> X/(max(abs(X))
+        l2_x_scaler_minmax.min = l2_x_scaler_minmax.min * 0
+        l2_x_scaler_minmax.max = np.abs(l2_x_scaler_minmax.max)
+        l2_y_scaler_minmax.min = l2_y_scaler_minmax.min[:26] * 0
+        l2_y_scaler_minmax.max = np.abs(l2_y_scaler_minmax.max[:26])
+        l1_x_scaler_minmax.min = l1_x_scaler_minmax.min * 0
+        l1_x_scaler_minmax.max = np.abs(l1_x_scaler_minmax.max)
+        l1_y_scaler_minmax.min = l1_y_scaler_minmax.min[:26] * 0
+        l1_y_scaler_minmax.max = np.abs(l1_y_scaler_minmax.max[:26])
 
-        train_dataset = MutliDataset(l1_x_train, l1_y_train, l2_x_train, l2_y_train,
+        self.l2_x_scaler_minmax = l2_x_scaler_minmax
+        self.l2_y_scaler_minmax = l2_y_scaler_minmax
+        self.l1_x_scaler_minmax = l1_x_scaler_minmax
+        self.l1_y_scaler_minmax = l1_y_scaler_minmax
+
+        train_dataset = MultiDataset(l1_x_train, l1_y_train, l2_x_train, l2_y_train,
                                      l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=l1_y_scaler_minmax,
-                                     l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, nested=self.config['nested'], variables=[26, 26])
+                                     l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, variables=[26, 26])
         self.train_loader = DataLoader(
-            train_dataset, self.config['batch_size'], shuffle=True, drop_last=False, num_workers=0, pin_memory=True)
+            train_dataset, self.config['batch_size'], shuffle=True, drop_last=False, num_workers=4, pin_memory=True)
 
-        val_dataset = MutliDataset(l1_x_valid, l1_y_valid, l2_x_valid, l2_y_valid,
+        val_dataset = MultiDataset(l1_x_valid, l1_y_valid, l2_x_valid, l2_y_valid,
                                    l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=l1_y_scaler_minmax,
-                                   l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, nested=self.config['nested'], variables=[26, 26])
+                                   l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, variables=[26, 26])
         self.val_loader = DataLoader(
-            val_dataset, self.config['batch_size'], shuffle=False, drop_last=False, num_workers=0, pin_memory=True)
+            val_dataset, self.config['batch_size'], shuffle=False, drop_last=False, num_workers=4, pin_memory=True)
 
         self.l2_y_scaler_minmax = l2_y_scaler_minmax
 
@@ -152,7 +161,7 @@ class Supervisor():
             f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}")
         self.scaler = torch.cuda.amp.GradScaler()
 
-    def step(self, eval):
+    def model_step(self, eval):
         start = time.time()
         if not eval:
             split = "Train"
@@ -168,48 +177,58 @@ class Supervisor():
         non_mae_total = 0
         norm_rmse_total = 0
         non_norm_rmse_total = 0
+        r2_total = 0
 
         if not eval:
             self.model.train()
         else:
             self.model.eval()
 
-        for i, (l1_x, l1_y, l2_x, l2_y) in enumerate(pbar := tqdm(loader, total=len(loader))):
+        for i, (l2_x, l2_y, l1_x, l1_y) in enumerate(pbar := tqdm(loader, total=len(loader))):
 
             if eval is False:  # Random dropout during trainig
                 dropout = self.config['batch_dropout']
                 n = int(l2_x.shape[1] * (1 - dropout))
                 idxs = np.random.permutation(np.arange(l2_x.shape[1]))[:n]
-                l1_x = l1_x[:, idxs, :]
-                l1_y = l1_y[:, idxs, :]
                 l2_x = l2_x[:, idxs, :]
                 l2_y = l2_y[:, idxs, :]
+                l1_x = l1_x[:, idxs, :]
+                l1_y = l1_y[:, idxs, :]
 
             l2_x = l2_x.reshape(-1, 1, l2_x.shape[-1]).to(device)
             l2_y = l2_y.reshape(-1, 1, l2_y.shape[-1]).to(device)
             l1_x = l1_x.reshape(-1, 1, l1_x.shape[-1]).to(device)
             l1_y = l1_y.reshape(-1, 1, l1_y.shape[-1]).to(device)
 
+            context_idxs, target_idxs = split_context_target(
+                l2_x, self.config['context_percentage_low'], self.config['context_percentage_high'])
+
+            l2_x_context = l2_x[context_idxs]
+            l2_y_context = l2_y[context_idxs]
+            l2_x_target = l2_x[target_idxs]
+            l2_y_target = l2_y[target_idxs]
+
+            l1_x_context = l1_x[context_idxs]
+            l1_y_context = l1_y[context_idxs]
+            l1_x_target = l1_x[target_idxs]
+            l1_y_target = l1_y[target_idxs]
+
             with torch.cuda.amp.autocast():
-                l1_output_mu, l1_output_cov, l2_output_mu, l2_output_cov, l1_y_truth,\
-                    l2_y_truth, l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c, \
-                    l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(l1_x, l1_y, l2_x, l2_y)
+                l2_output_mu, l2_output_cov, l1_output_mu, l1_output_cov,  \
+                    l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c, \
+                    l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = \
+                    self.model(l2_x_context, l2_y_context, l2_x_target, l1_x_context, l1_y_context, l1_x_target,
+                               l2_x_all=l2_x, l2_y_all=l2_y, l1_x_all=l1_x, l1_y_all=l1_y)
 
-                if torch.any(torch.isnan(l2_output_mu)):
-                    self.logger.info(
-                        "Prediction returned NAN. Learning rate is too high...")
-                    continue
+                nll = nll_loss(l2_output_mu, l2_output_cov, l2_y_target) + \
+                    nll_loss(l1_output_mu, l1_output_cov, l1_y_target)
+                mae = mae_loss(l2_output_mu, l2_y_target) + \
+                    mae_loss(l1_output_mu, l1_y_target)
+                kld = kld_gaussian_loss(l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c) + \
+                    kld_gaussian_loss(
+                        l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c)
 
-                l2_nll = nll_loss(l2_output_mu, l2_output_cov, l2_y_truth)
-                l1_nll = nll_loss(l1_output_mu, l1_output_cov, l1_y_truth)
-                l2_mae = mae_loss(l2_output_mu, l2_y_truth)
-                l1_mae = mae_loss(l1_output_mu, l1_y_truth)
-                l2_kld = kld_gaussian_loss(
-                    l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c)
-                l1_kld = kld_gaussian_loss(
-                    l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c)
-
-                loss = l2_nll + l1_nll + l2_mae + l1_mae + l2_kld + l1_kld
+                loss = nll + mae + kld
 
             if not eval:
                 self.optim.zero_grad()
@@ -219,56 +238,77 @@ class Supervisor():
                 if i == 0:
                     self.scheduler.step()
 
-            mae = l2_mae.detach()
-            mse = mse_loss(l2_output_mu, l2_y_truth, mean=True).detach()
-            norm_rmse = norm_rmse_loss(l2_output_mu, l2_y_truth).detach()
+            mse = mse_loss(l2_output_mu, l2_y_target, mean=True).detach()
+            norm_rmse = norm_rmse_loss(l2_output_mu, l2_y_target).detach()
             non_y_pred = self.l2_y_scaler_minmax.inverse_transform(
-                l2_output_mu.unsqueeze(1).detach().cpu().numpy())
+                l2_output_mu.squeeze().detach().cpu().numpy())
             non_y = self.l2_y_scaler_minmax.inverse_transform(
-                l2_y_truth.unsqueeze(1).detach().cpu().numpy())
-            non_mae = mae_metric(non_y_pred, non_y)
+                l2_y_target.squeeze().detach().cpu().numpy())
 
+            r2_mean = 0
+            # linregress could not load every value. Approximates R2.
+            mb_size = 16
+            for v in range(non_y_pred.shape[-1]):
+                for mb in range(mb_size):
+                    result = linregress(
+                        non_y[mb::mb_size, v], non_y_pred[mb::mb_size, v])
+                    r2_mean += result.rvalue ** 2
+            r2_mean = r2_mean / (non_y_pred.shape[-1] * mb_size)
+
+            non_mae = mae_metric(non_y_pred, non_y)
             mse_total += mse.item()
             mae_total += mae.item()
             norm_rmse_total += norm_rmse
             non_mae_total += non_mae.item()
+            r2_total += r2_mean
 
-            if eval is not False:
+            if not eval:
                 writer.add_scalar("mse", mse.item(), self.global_batch_idx)
                 writer.add_scalar("mae", mae.item(), self.global_batch_idx)
                 writer.add_scalar("norm_rmse", norm_rmse,
                                   self.global_batch_idx)
                 writer.add_scalar("non_mae", non_mae.item(),
                                   self.global_batch_idx)
+                writer.add_scalar("r2", r2_mean, self.global_batch_idx)
                 writer.flush()
+                self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(
-                f"MSE: {mse.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae_total:.6f}")
-            if not eval:
-                self.global_batch_idx += 1
+                f"R2: {r2_mean:.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
 
         mse_total /= i+1
         mae_total /= i+1
         non_mae_total /= i+1
         norm_rmse_total /= i+1
         non_norm_rmse_total /= i+1
+        r2_total /= i+1
+
+        if eval:
+            writer.add_scalar("mse", mse_total, self.global_batch_idx)
+            writer.add_scalar("mae", mae_total, self.global_batch_idx)
+            writer.add_scalar("norm_rmse", norm_rmse_total,
+                              self.global_batch_idx)
+            writer.add_scalar("non_mae", non_mae_total, self.global_batch_idx)
+            writer.add_scalar("r2", r2_total, self.global_batch_idx)
+            writer.flush()
 
         end = time.time()
         total_time = end - start
 
         self.logger.info(
-            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f}"
-            + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}")
+            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f} R2: {r2_total}"
+            + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}"
+            + f" LR: {self.scheduler.get_last_lr()[0]:6f}")
 
         return non_mae_total
 
-    def train(self):
+    def train_model(self):
         try:
             while True:
-                self.step(eval=False)
+                self.model_step(eval=False)
                 with torch.no_grad():
-                    valid_loss = self.step(eval=True)
+                    valid_loss = self.model_step(eval=True)
 
                 self.config['epoch'] = self.epoch
                 self.config['global_batch_idx'] = self.global_batch_idx
@@ -307,36 +347,58 @@ class Supervisor():
         except KeyboardInterrupt as e:
             self.logger.info("Interrupted")
 
-    def hyper_tune(self, max_epochs, hyper_params, hyper_model_params):
-        self.config.update(hyper_params)
-        self.config["model"].update(hyper_model_params)
-        with SeedContext(seed):
-            self.init_model()
 
-            best_loss = 100000
-            self.logger.info("Tuning: " + str(hyper_params) + " " + str(hyper_model_params))
+def main():
+    if TUNE:
+        num_samples = 30
+        max_iter = 2
+        param_space = {
+            "train": {
+                "lr": tune.qloguniform(1e-6, 1e-3, 1e-6),
+                "batch_dropout": tune.uniform(0, 0.5),
+                "weight_decay": tune.uniform(0, 0.2),
+                # "decay_steps": 10,
+                # "decay_rate": 0.9
+            },
+            "model": {
+                "hidden_layers": tune.choice([3, 5, 7]),
+                "z_hidden_layers": tune.choice([3, 5, 7]),
+                "z_hidden_dim": tune.choice([32, 64, 96]),
+                "z_dim": tune.choice([64, 96, 128, 160]),
+                "hidden_dim": tune.choice([32, 64, 96])
+            },
+        }
+        tuner = tune.Tuner(
+            tune.with_resources(Supervisor, {"cpu": 1, "gpu": 0.5}),
+            tune_config=tune.TuneConfig(
+                scheduler=tune.schedulers.ASHAScheduler(
+                    mode="min", metric="loss", max_t=max_iter),
+                num_samples=num_samples,
+            ),
+            run_config=air.RunConfig(
+                local_dir="./ray_results",
+                stop={"training_iteration": max_iter},
+                verbose=3,
+                checkpoint_config=air.CheckpointConfig(
+                    checkpoint_at_end=False
+                ),
+            ),
+            param_space=param_space,
+        )
+        results = tuner.fit()
+    else:
+        set_seed(seed)
+        supervisor = Supervisor()
+        supervisor.init_config()
+        supervisor.init_dataloader()
+        supervisor.init_model()
+        supervisor.init_checkpoint()
 
-            self.epoch = 0
-            for e in range(max_epochs):
-                self.step(eval=False)
-                with torch.no_grad():
-                    valid_loss = self.step(eval=True)
-                if valid_loss < best_loss:
-                    best_loss = valid_loss
-                self.epoch += 1
-            self.logger.info("Tuning loss: " + str(best_loss))
-
-            if best_loss < self.tune_best_loss:
-                self.tune_best_loss = best_loss
-                self.best_results = {
-                    "hyper_params": hyper_params,
-                    "hyper_model_params": hyper_model_params,
-                    "loss": best_loss
-                }
+        supervisor.train_model()
 
 
 if __name__ == "__main__":
-    tune = True
+    TUNE = False
 
     seed = 0
     # parser = argparse.ArgumentParser()
@@ -346,35 +408,4 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 
-    with SeedContext(seed):
-        supervisor = Supervisor(tune)
-
-    def qloguniform(low, high, base, q):
-        return np.power(base, np.random.uniform(low, high)) // q * q
-
-    # Hyper parameter tuning
-    if tune:
-        num_samples = 30
-        max_epochs = 2
-
-        try:
-            for i in range(num_samples):
-                with SeedContext(np.random.randint(1000)):
-                    hyper_config = {
-                        "weight_decay": np.random.uniform(0, 0.1),
-                        "lr": qloguniform(-6, -3, 7, 1e-6),
-                    }
-                    hyper_model_config = {
-                        "hidden_layers": np.random.choice([3, 5, 7]),
-                        "z_hidden_layers": np.random.choice([3, 5, 7]),
-                        "z_hidden_dim": np.random.choice([32, 64, 96, 160]),
-                        "z_dim": np.random.choice([32, 64, 96, 128, 160]),
-                        "hidden_dim": np.random.choice([32, 64, 96, 128, 160])
-                    }
-                supervisor.hyper_tune(max_epochs, hyper_config, hyper_model_config)
-        except Exception as e:
-            print(e)
-        finally:
-            supervisor.logger.info("Best tuning results: " + str(supervisor.best_results))
-    else:
-        supervisor.train()
+    main()
