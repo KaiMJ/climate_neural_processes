@@ -1,6 +1,6 @@
-title: SFNP_train
+title: SFNP_CAM5
 
-data_dir: /home/mkim/Nserver/climate_processes/data
+data_dir: /data/allen/climate_data/
 log_dir: logs
 
 batch_size: 1

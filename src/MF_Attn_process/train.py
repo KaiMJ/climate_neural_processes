@@ -14,7 +14,7 @@ from tqdm import tqdm
 from lib.utils import *
 from lib.loss import *
 from lib.dataset import *
-from model import MultiLatentModel
+from MF_Attn_process.model_old import MultiLatentModel
 
 scaler = torch.cuda.amp.GradScaler()
 

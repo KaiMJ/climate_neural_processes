@@ -1,7 +1,7 @@
 import sys
 sys.path.append('..')
 sys.path.append('.')
-from model import Model
+from MF_Attn_process.model_old import Model
 from lib.dataset import *
 from lib.loss import *
 from lib.utils import *

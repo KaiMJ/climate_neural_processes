@@ -92,9 +92,9 @@ class Supervisor(tune.Trainable):
         # Train and validation data split
         # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004
         l2_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
         l2_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
 
         n = 365
         split_n = int(n*0.8)
@@ -104,9 +104,9 @@ class Supervisor(tune.Trainable):
         l2_y_valid = l2_y_data[split_n:n]
 
         x_scaler_minmax = dill.load(
-            open(f"{cwd}/../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
+            open(f"{cwd}/../../scalers/x_CAM5_minmax_scaler.dill", 'rb'))
         y_scaler_minmax = dill.load(
-            open(f"{cwd}/../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
+            open(f"{cwd}/../../scalers/y_CAM5_minmax_scaler.dill", 'rb'))
 
         # Change to first 26 variables
         # Follow Azis's process. X -> X/(max(abs(X))

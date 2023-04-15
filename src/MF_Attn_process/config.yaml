@@ -22,8 +22,8 @@ best_loss: 99999
 model:
   l1_input_dim: 108
   l1_output_dim: 26
-  l2_input_dim: 132
-  l2_output_dim: 32
+  l2_input_dim: 108
+  l2_output_dim: 26
 
   num_heads: 4
   dropout: 0.2
