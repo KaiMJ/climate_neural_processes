@@ -33,5 +33,4 @@ model:
   hidden_dim: 160
   hidden_layers: 3
 
-
 load_checkpoint: false
