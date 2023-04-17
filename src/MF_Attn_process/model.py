@@ -39,6 +39,7 @@ class LatentEncoder(nn.Module):
         if level == 2:
             input_dim = config['l2_input_dim']
             output_dim = config['l2_output_dim']
+            self.l1z_l2z_encoder = MLP_Z1Z2_Encoder(config)
         hidden_dim = config['hidden_dim']
 
         attention_layers = config['attention_layers']
@@ -51,7 +52,7 @@ class LatentEncoder(nn.Module):
         self.mu = Linear(hidden_dim, hidden_dim)
         self.log_sigma = Linear(hidden_dim, hidden_dim)
 
-    def forward(self, x, y):
+    def forward(self, x, y, l_z=None):
         # concat location (x) and value (y)
         encoder_input = t.cat([x, y], dim=-1)
 
@@ -67,6 +68,11 @@ class LatentEncoder(nn.Module):
         # mean
         hidden = encoder_input.mean(dim=1)
         hidden = t.relu(self.penultimate_layer(hidden))
+
+        # z_mu combine with hidden if level==2
+        if l_z is not None:
+            hidden = self.l1z_l2z_encoder(hidden, l_z)
+            print(hidden.shape)
 
         # get mu and sigma
         mu = self.mu(hidden)
@@ -94,6 +100,7 @@ class DeterministicEncoder(nn.Module):
         if level == 2:
             input_dim = config['l2_input_dim']
             output_dim = config['l2_output_dim']
+            self.l1r_l2r_encoder = MLP_Z1Z2_Encoder(config)
         hidden_dim = config['hidden_dim']
         attention_layers = config['attention_layers']
 
@@ -106,7 +113,7 @@ class DeterministicEncoder(nn.Module):
         self.target_projection = Linear(input_dim, hidden_dim)
         self.layer_norm = nn.LayerNorm(hidden_dim)
 
-    def forward(self, context_x, context_y, target_x):
+    def forward(self, context_x, context_y, target_x, l_r=None):
         # concat context location (x), context value (y)
         encoder_input = t.cat([context_x, context_y], dim=-1)
 
@@ -126,6 +133,9 @@ class DeterministicEncoder(nn.Module):
         # cross attention layer
         for attention in self.cross_attentions:
             query, _ = attention(keys, encoder_input, query)
+
+        if l_r is not None:
+            query = self.l1r_l2r_encoder(query, l_r)
 
         return query
 
@@ -286,10 +296,16 @@ class Attention(nn.Module):
 
         return result, attns
 
+
 class MLP_Z1Z2_Encoder(nn.Module):
 
     def __init__(self, config):
-        in_dim = 
+        dim = config['hidden_dim']
+        in_dim = dim * 2  # hidden, l_r/l_z
+        hidden_dim = dim
+        out_dim = dim
+        hidden_layers = config['hidden_layers']
+
         nn.Module.__init__(self)
         layers = [nn.Linear(in_dim, hidden_dim), nn.ELU()]
         for _ in range(hidden_layers - 1):
@@ -299,19 +315,13 @@ class MLP_Z1Z2_Encoder(nn.Module):
 
         self.model = nn.Sequential(*layers)
         self.mean_out = nn.Linear(hidden_dim, out_dim)
-        self.cov_out = nn.Linear(hidden_dim, out_dim)
-        self.cov_m = nn.Sigmoid()
-        # self.cov_m = nn.ELU()
 
-    def forward(self, x):
-        # x = torch.swapaxes(x, -2, -1)
-        output = self.model(x)
+    def forward(self, l_z, l_r):
+        output = self.model(t.cat([l_z, l_r], dim=-1))
         mean = self.mean_out(output)
-        cov = 0.1+ 0.9*self.cov_m(self.cov_out(output))
-        # mean = torch.swapaxes(mean, -2, -1)
-        # cov = torch.swapaxes(cov, -2, -1)
 
-        return mean, cov
+        return mean
+
 
 class Model(nn.Module):
     """
@@ -327,14 +337,14 @@ class Model(nn.Module):
         self.l2_deterministic_encoder = DeterministicEncoder(config, level=2)
         self.l1_decoder = Decoder(config, level=1)
         self.l2_decoder = Decoder(config, level=2)
-        self.z2_z1_agg = MLP_Z1Z2_Encoder(config)
 
-    def forward(self, l1_x_context, l1_y_context, l1_x_target, l2_x_context, l2_y_context, l2_x_target, l1_y_target=None, l2_y_target=None):
-        # def forward(self, context_x, context_y, target_x, target_y=None):
+    def forward(self, l1_x_context, l1_y_context, l1_x_target, l2_x_context, l2_y_context, l2_x_target,
+                l1_y_target=None, l2_y_target=None):
+        """ l1_r and l1_z --> l1_l2_latent """
         l1_z_mu_c, l1_z_cov_c, l1_prior_z = self.l1_latent_encoder(
             l1_x_context, l1_y_context)
         l2_z_mu_c, l2_z_cov_c, l2_prior_z = self.l2_latent_encoder(
-            l2_x_context, l2_y_context)
+            l2_x_context, l2_y_context, l1_z_mu_c)
 
         if l1_y_target is not None:
             l1_z_mu_all, l1_z_cov_all, l1_posterior_z = self.l1_latent_encoder(
@@ -345,19 +355,25 @@ class Model(nn.Module):
 
         if l2_y_target is not None:
             l2_z_mu_all, l2_z_cov_all, l2_posterior_z = self.l2_latent_encoder(
-                l2_x_target, l2_y_target)
+                l2_x_target, l2_y_target, l1_z_mu_all)
             l2_z = l2_posterior_z
         else:
             l2_z = l2_prior_z
-        
-        l1_z = l1_z.unsqueeze(1).repeat(1, l1_x_target.size(1), 1)  # [B, T_target, H]
+
         l1_r = self.l1_deterministic_encoder(
             l1_x_context, l1_y_context, l1_x_target)  # [B, T_target, H]
-        l1_output_mu, l1_output_cov = self.l1_decoder(l1_r, l1_z, l1_x_target)
-        
+        l2_r = self.l2_deterministic_encoder(
+            l2_x_context, l2_y_context, l2_x_target, l1_r)
 
-        if target_y is not None:
-            return l2_output_mu, l2_output_cov, l2_z_mu_c, l2_z_cov_c, l2_z_mu_all, l2_z_cov_all
+        l1_z = l1_z_mu_c.unsqueeze(1).repeat(1, l1_x_target.size(1), 1)
+        l2_z = l2_z_mu_c.unsqueeze(1).repeat(1, l2_x_target.size(1), 1)
+        l1_output_mu, l1_output_cov = self.l1_decoder(l1_r, l1_z, l1_x_target)
+        l2_output_mu, l2_output_cov = self.l2_decoder(l2_r, l2_z, l2_x_target)
+
+        if l2_y_target is not None:
+            return l2_output_mu, l2_output_cov, l1_output_mu, l1_output_cov, \
+                l2_z_mu_c, l2_z_cov_c, l2_z_mu_all, l2_z_cov_all, \
+                l1_z_mu_c, l1_z_cov_c, l1_z_mu_all, l1_z_cov_all
         else:
             return l2_output_mu, l2_output_cov
 
