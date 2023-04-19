@@ -189,7 +189,6 @@ class Supervisor(tune.Trainable):
                 y_target = y[:, target_idxs].to(device)
                 l2_truth = y_target
 
-
                 with torch.cuda.amp.autocast():
                     l2_output_mu, l2_output_cov, l2_z_mu_c, l2_z_cov_c, l2_z_mu_all, l2_z_cov_all = self.model(
                         x_context, y_context, x_target, y_target)
@@ -199,10 +198,11 @@ class Supervisor(tune.Trainable):
                             "Prediction returned NAN. Learning rate is too high...")
                         continue
 
-                    nll = nll_loss(l2_output_mu, l2_output_cov, l2_truth)
+                    # nll = nll_loss(l2_output_mu, l2_output_cov, l2_truth)
                     mae = mae_loss(l2_output_mu, l2_truth)
                     kld = kl_div(l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c)
-                    loss = nll + mae + kld
+                    # loss = nll + mae + kld
+                    loss = mae + kld
 
                     if not eval:
                         self.optim.zero_grad()

@@ -172,6 +172,8 @@ class Evaluator():
         self.y_pred_mean = 0
         self.nmae = 0
         self.non_mae = 0
+        self.y_max = 0
+
 
         with torch.no_grad():
             for i, data in enumerate(tqdm(loader, total=len(loader))):
@@ -189,6 +191,7 @@ class Evaluator():
                 self.y2_total += (non_y_pred ** 2).sum(axis=0)
                 self.xy_total += (non_y_pred * non_y).sum(axis=0)
 
+                self.y_max = np.maximum(self.y_max, np.abs(non_y).max(axis=0))
 
         self.y_mean /= self.n_total
         self.y_pred_mean /= self.n_total
