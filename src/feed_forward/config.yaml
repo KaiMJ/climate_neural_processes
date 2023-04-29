@@ -1,26 +1,26 @@
-title: transformer_train
+title: NN_train
 
-data_dir: /home/mkim/Nserver/climate_processes/data
+data_dir: /data/allen/climate_data/
 log_dir: logs
 
 batch_size: 1
-lr: 7.7e-05
+lr: 0.000227
 global_batch_idx: 0
-batch_dropout: 0.1
 
-weight_decay: 0.04227092357481125
 decay_steps: 10
 decay_rate: 0.9
 
 patience: 20
-best_loss: 999999999
+best_loss: 0
 
 model:
-  num_heads: 4
-  attention_layers: 12
-  n_embd: 48
-  dropout: 0.0057435876268728155
-  input_dim: 108
-  output_dim: 26
+  l2_input_dim: 108
+  l2_output_dim: 26
+  num_layers: 7
+  num_nodes: 128
+  dropout_rate: 0.01
+  leaky_relu_slope: 0.15
+  dropout_rate: 0.01
+
   
 load_checkpoint: false
