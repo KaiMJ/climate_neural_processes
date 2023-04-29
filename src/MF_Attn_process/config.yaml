@@ -19,7 +19,7 @@ decay_rate: 0.9
 gamma: 0.9
 
 patience: 20
-best_loss: 99999
+best_loss: 0
 context_percentage_low: 0.2
 context_percentage_high: 0.5
 

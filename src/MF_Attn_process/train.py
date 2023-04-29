@@ -313,7 +313,7 @@ class Supervisor(tune.Trainable):
             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}"
             + f" LR: {self.scheduler.get_last_lr()[0]:6f}")
 
-        return non_mae_total
+        return r2_mean_total
 
     def train_model(self):
         try:
@@ -326,7 +326,7 @@ class Supervisor(tune.Trainable):
                 self.config['global_batch_idx'] = self.global_batch_idx
 
                 save_best = False
-                if valid_loss < self.best_loss:
+                if valid_loss > self.best_loss:
                     self.best_loss = valid_loss
                     self.config['best_loss'] = self.best_loss
                     save_best = True

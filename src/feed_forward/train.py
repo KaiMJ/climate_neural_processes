@@ -1,20 +1,21 @@
-from lib.model import Model
-from lib.dataset import *
-from lib.loss import *
-from ray import tune, air
-from lib.utils import *
-from tqdm import tqdm
-import torch
-from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import StepLR, CyclicLR
-from torch.utils.tensorboard import SummaryWriter
-import numpy as np
-import yaml
-import glob
-import os
-import dill
-import time
 import argparse
+from ray import tune, air
+import time
+import random
+import dill
+import os
+import glob
+import yaml
+import numpy as np
+from torch.utils.tensorboard import SummaryWriter
+from torch.optim.lr_scheduler import StepLR, CyclicLR
+from torch.utils.data import DataLoader
+import torch
+from tqdm import tqdm
+from lib.utils import *
+from lib.loss import *
+from lib.dataset import *
+from lib.model import Model
 from scipy.stats import linregress
 
 cwd = os.getcwd()
@@ -92,9 +93,9 @@ class Supervisor(tune.Trainable):
         # Train and validation data split
         # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004
         l2_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
         l2_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
 
         split_n = int(365*0.8)
         l2_x_train = l2_x_data[:split_n]
@@ -103,16 +104,16 @@ class Supervisor(tune.Trainable):
         l2_y_valid = l2_y_data[split_n:365]
 
         x_scaler_minmax = dill.load(
-            open(f"{cwd}/../../scalers/x_CAM5_minmax_scaler.dill", 'rb'))
+            open(f"{cwd}/../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
         y_scaler_minmax = dill.load(
-            open(f"{cwd}/../../scalers/y_CAM5_minmax_scaler.dill", 'rb'))
+            open(f"{cwd}/../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
 
-        # Change to first 26 variables
+         # Change to first 26 variables
         # Follow Azis's process. X -> X/(max(abs(X))
         x_scaler_minmax.min = x_scaler_minmax.min * 0
         x_scaler_minmax.max = np.abs(x_scaler_minmax.max)
         y_scaler_minmax.min = y_scaler_minmax.min[:26] * 0
-        y_scaler_minmax.max = np.abs(y_scaler_minmax.max[:26])
+        y_scaler_minmax.max = np.abs(y_scaler_minmax.max[:26])       # Change to first 26 variables
         self.x_scaler_minmax = x_scaler_minmax
         self.y_scaler_minmax = y_scaler_minmax
 
@@ -160,49 +161,45 @@ class Supervisor(tune.Trainable):
             self.model.eval()
 
         for i, (x_, y_) in enumerate(pbar := tqdm(loader, total=len(loader))):
-            n_mb = 9
-
             # mini batch gradients
+            n_mb = 4
             mae_mb = 0
             mse_mb = 0
             non_mae_mb = 0
             norm_rmse_mb = 0
             r2_mean_mb = 0
 
-            # TODO: make mini batches random
+            # Positional embedding
+            # x_idxs, y_idxs = np.meshgrid(np.arange(96), np.arange(144))
+            # x_idxs = x_idxs / 96 * np.pi
+            # y_idxs = y_idxs / 144 * np.pi
+            # pos_idxs = np.dstack((np.sin(x_idxs), np.cos(x_idxs), np.sin(y_idxs), np.cos(y_idxs)))
+            # pos_idxs = pos_idxs.reshape(96*144, 1, 4)
+            # pos_idxs = np.arange(96 * 144).reshape(-1, 1, 1)
+            # pos_idxs = torch.from_numpy(pos_idxs).int()
+            # pos_idxs = pos_idxs.repeat(24, 1, 1).to(device)
+
             for bg_idx in range(n_mb):
                 x = x_[:, bg_idx::n_mb]
                 y = y_[:, bg_idx::n_mb]
+                # pos_idxs_mb = pos_idxs[bg_idx::n_mb]
+
                 if eval is False:  # Random dropout during training
                     dropout = self.config['batch_dropout']
                     n = int(x.shape[1] * (1 - dropout))
                     idxs = np.random.permutation(np.arange(x.shape[1]))[:n]
                     x = x[:, idxs, :]
                     y = y[:, idxs, :]
+                    # pos_idxs_mb = pos_idxs_mb[idxs]
 
-                # TODO: make x, y independent of time and space
-                context_idxs, target_idxs = split_context_target(
-                    x, self.config['context_percentage_low'], self.config['context_percentage_high'], axis=-1)
-                x_context = x[:, context_idxs, :].to(device)
-                y_context = y[:, context_idxs].to(device)
-                x_target = x[:, target_idxs, :].to(device)
-                y_target = y[:, target_idxs].to(device)
-                l2_truth = y_target
+                x = x.reshape(-1, 1, x.shape[-1]).to(device)
+                y = y.reshape(-1, 1, y.shape[-1]).to(device)
 
                 with torch.cuda.amp.autocast():
-                    l2_output_mu, l2_output_cov, l2_z_mu_c, l2_z_cov_c, l2_z_mu_all, l2_z_cov_all = self.model(
-                        x_context, y_context, x_target, y_target)
+                    l2_output_mu = self.model(x)
 
-                    if torch.any(torch.isnan(l2_output_mu)):
-                        self.logger.info(
-                            "Prediction returned NAN. Learning rate is too high...")
-                        continue
-
-                    # nll = nll_loss(l2_output_mu, l2_output_cov, l2_truth)
-                    mae = mae_loss(l2_output_mu, l2_truth)
-                    kld = kl_div(l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c)
-                    # loss = nll + mae + kld
-                    loss = mae + kld
+                    mae = mae_loss(l2_output_mu, y)
+                    loss = mae
 
                     if not eval:
                         self.optim.zero_grad()
@@ -212,14 +209,13 @@ class Supervisor(tune.Trainable):
                         if i == 0:
                             self.scheduler.step()
 
-                mse = mse_loss(l2_output_mu, l2_truth, mean=True).detach()
-                norm_rmse = norm_rmse_loss(l2_output_mu, l2_truth).detach()
+                mse = mse_loss(l2_output_mu, y, mean=True).detach()
+                norm_rmse = norm_rmse_loss(l2_output_mu, y).detach()
                 non_y_pred = self.y_scaler_minmax.inverse_transform(
                     l2_output_mu.squeeze().detach().cpu().numpy())
                 non_y = self.y_scaler_minmax.inverse_transform(
-                    l2_truth.squeeze().detach().cpu().numpy())
+                    y.squeeze().detach().cpu().numpy())
                 non_mae = mae_metric(non_y_pred, non_y)
-
                 r2_mean = 0
                 for v in range(non_y.shape[-1]):
                     result = linregress(non_y[:, v], non_y_pred[:, v])
@@ -239,40 +235,39 @@ class Supervisor(tune.Trainable):
             r2_mean_mb /= n_mb
 
             if not eval:
-                writer.add_scalar("mse", mse.item(), self.global_batch_idx)
-                writer.add_scalar("mae", mae.item(), self.global_batch_idx)
-                writer.add_scalar("norm_rmse", norm_rmse,
+                writer.add_scalar("mse", mse_mb.item(), self.global_batch_idx)
+                writer.add_scalar("mae", mae_mb.item(), self.global_batch_idx)
+                writer.add_scalar("norm_rmse", norm_rmse_mb,
                                   self.global_batch_idx)
-                writer.add_scalar("non_mae", non_mae.item(),
+                writer.add_scalar("non_mae", non_mae_mb.item(),
                                   self.global_batch_idx)
-                writer.add_scalar("r2_mean", r2_mean_mb, self.global_batch_idx)
+                writer.add_scalar("r2", r2_mean_mb, self.global_batch_idx)
                 writer.flush()
                 self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(
-                f"R2: {r2_mean_mb:.6f} MAE: {mae_mb.item():.6f} NON-MAE: {non_mae_mb.item():.6f}")
+                f"R2: {r2_mean_mb.item():.6f} MAE: {mae_mb.item():.6f} NON-MAE: {non_mae_mb.item():.6f}")
 
-            mae_total += mae_mb.item()
-            mse_total += mse_mb.item()
-            norm_rmse_total += norm_rmse_mb
-            non_mae_total += non_mae_mb.item()
-            r2_mean_total += r2_mean_mb
+            mse_total += mae_mb
+            mae_total += mae.item()
+            norm_rmse_total += norm_rmse
+            non_mae_total += non_mae.item()
+            r2_mean_mb += r2_mean
 
-        mse_total /= (i+1)
-        mae_total /= (i+1)
-        non_mae_total /= (i+1)
-        norm_rmse_total /= (i+1)
-        non_norm_rmse_total /= (i+1)
-        r2_mean_total /= (i+1)
+        mse_total /= (i+1) 
+        mae_total /= (i+1) 
+        non_mae_total /= (i+1) 
+        norm_rmse_total /= (i+1) 
+        non_norm_rmse_total /= (i+1) 
+        r2_mean_total /= (i+1) 
 
         if eval:
             writer.add_scalar("mse", mse_total, self.global_batch_idx)
             writer.add_scalar("mae", mae_total, self.global_batch_idx)
-            writer.add_scalar("norm_rmse", norm_rmse_total,
-                              self.global_batch_idx)
+            writer.add_scalar("norm_rmse", norm_rmse_total, self.global_batch_idx)
             writer.add_scalar("non_mae", non_mae_total, self.global_batch_idx)
-            writer.add_scalar("r2_mean", r2_mean_total, self.global_batch_idx)
+            writer.add_scalar("r2", r2_mean_total, self.global_batch_idx)
             writer.flush()
 
         end = time.time()
@@ -281,9 +276,9 @@ class Supervisor(tune.Trainable):
         self.logger.info(
             f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - R2: {r2_mean_total:.6f} NON-MAE: {non_mae_total:.6f}"
             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}"
-            + f" LR: {self.scheduler.get_last_lr()[0]:6f}")
+            + f"LR: {self.scheduler.get_last_lr()[0]:6f}")
 
-        return r2_mean_total
+        return non_mae_total
 
     def train_model(self):
         try:
@@ -296,7 +291,7 @@ class Supervisor(tune.Trainable):
                 self.config['global_batch_idx'] = self.global_batch_idx
 
                 save_best = False
-                if valid_loss > self.best_loss:
+                if valid_loss < self.best_loss:
                     self.best_loss = valid_loss
                     self.config['best_loss'] = self.best_loss
                     save_best = True
@@ -334,6 +329,7 @@ def main():
     if TUNE:
         num_samples = 30
         max_iter = 2
+
         param_space = {
             "train": {
                 "lr": tune.qloguniform(1e-6, 1e-3, 1e-6),
@@ -343,15 +339,14 @@ def main():
                 # "decay_rate": 0.9
             },
             "model": {
-                "hidden_layers": tune.choice([3, 5, 7]),
-                "z_hidden_layers": tune.choice([3, 5, 7]),
-                "z_hidden_dim": tune.choice([32, 64, 96]),
-                "z_dim": tune.choice([64, 96, 128, 160]),
-                "hidden_dim": tune.choice([32, 64, 96])
+                "num_heads": tune.choice([4, 8, 16]),
+                "attention_layers": tune.choice([4, 8, 12]),
+                "n_embd": tune.choice([32, 48, 64, 96, 128]),
+                "dropout": tune.uniform(0, 0.4),
             },
         }
         tuner = tune.Tuner(
-            tune.with_resources(Supervisor, {"cpu": 1, "gpu": 1}),
+            tune.with_resources(Supervisor, {"cpu": 1, "gpu": 0.5}),
             tune_config=tune.TuneConfig(
                 scheduler=tune.schedulers.ASHAScheduler(
                     mode="min", metric="loss", max_t=max_iter),
@@ -389,7 +384,5 @@ if __name__ == "__main__":
     # seed = args.seed
 
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
-
-    # CUDA_VISIBLE_DEVICES=1,2,3,5 python train.py
 
     main()
