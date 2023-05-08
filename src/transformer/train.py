@@ -153,7 +153,7 @@ class Supervisor(tune.Trainable):
         non_mae_total = 0
         norm_rmse_total = 0
         non_norm_rmse_total = 0
-        r2_mean_total = 0
+        r2_total = 0
 
         if not eval:
             self.model.train()
@@ -163,11 +163,11 @@ class Supervisor(tune.Trainable):
         for i, (x_, y_) in enumerate(pbar := tqdm(loader, total=len(loader))):
             # mini batch gradients
             n_mb = 4
-            mae_mb = 0
             mse_mb = 0
+            mae_mb = 0
             non_mae_mb = 0
             norm_rmse_mb = 0
-            r2_mean_mb = 0
+            r2_mb = 0
 
             # Positional embedding
             # x_idxs, y_idxs = np.meshgrid(np.arange(96), np.arange(144))

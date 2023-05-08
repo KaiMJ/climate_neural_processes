@@ -1,6 +1,6 @@
 title: transformer_train
 
-data_dir: /home/mkim/Nserver/climate_processes/data
+data_dir: /data/kai
 log_dir: logs
 
 batch_size: 1

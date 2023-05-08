@@ -1,6 +1,6 @@
 title: NN_train
 
-data_dir: /data/allen/climate_data/
+data_dir: /data/kai/
 log_dir: logs
 
 batch_size: 1
@@ -17,7 +17,7 @@ model:
   l2_input_dim: 108
   l2_output_dim: 26
   num_layers: 7
-  num_nodes: 128
+  num_nodes: 512
   dropout_rate: 0.01
   leaky_relu_slope: 0.15
   dropout_rate: 0.01

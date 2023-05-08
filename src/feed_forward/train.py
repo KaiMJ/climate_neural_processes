@@ -1,5 +1,5 @@
 import argparse
-from ray import tune, air
+# from ray import tune, air
 import time
 import random
 import dill
@@ -20,8 +20,8 @@ from scipy.stats import linregress
 
 cwd = os.getcwd()
 
-
-class Supervisor(tune.Trainable):
+# tune.Trainable
+class Supervisor():
     """
         setup and step is for ray tune.
     """
