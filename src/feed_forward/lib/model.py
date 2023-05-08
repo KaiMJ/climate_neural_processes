@@ -29,22 +29,3 @@ class Model(nn.Module):
 
     def forward(self, x):
         return self.model(x)
-
-class NegRLoss(nn.Module):
-    def __init__(self, eps=1e-6):
-        super(NegRLoss, self).__init__()
-        self.eps = eps
-
-    def forward(self, x, y, np=False):
-        if np:
-            x = torch.from_numpy(x)
-            y = torch.from_numpy(y)
-
-        xmean = torch.mean(x, dim=0)
-        ymean = torch.mean(y, dim=0)
-        ssxm = torch.mean( (x-xmean)**2, dim=0)
-        ssym = torch.mean( (y-ymean)**2, dim=0 )
-        ssxym = torch.mean( (x-xmean) * (y-ymean), dim=0 )
-        r = ssxym / torch.sqrt(ssxm * ssym)
-
-        return r

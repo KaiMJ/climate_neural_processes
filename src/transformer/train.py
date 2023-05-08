@@ -1,5 +1,5 @@
 import argparse
-from ray import tune, air
+# from ray import tune, air
 import time
 import random
 import dill
@@ -20,8 +20,8 @@ from scipy.stats import linregress
 
 cwd = os.getcwd()
 
-
-class Supervisor(tune.Trainable):
+# tune.Trainable
+class Supervisor():
     """
         setup and step is for ray tune.
     """
@@ -131,11 +131,11 @@ class Supervisor(tune.Trainable):
 
         self.optim = torch.optim.Adam(self.model.parameters(
         ), lr=self.config['lr'], weight_decay=self.config['weight_decay'])
-        self.scheduler = StepLR(
-            self.optim, step_size=self.config['decay_steps'], gamma=self.config['decay_rate'])
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optim, gamma=self.config['decay_rate'])
         self.logger.info(
             f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}")
         self.scaler = torch.cuda.amp.GradScaler()
+        self.loss_fn = NegRLoss()
 
     def model_step(self, eval):
         start = time.time()
@@ -152,7 +152,6 @@ class Supervisor(tune.Trainable):
         mae_total = 0
         non_mae_total = 0
         norm_rmse_total = 0
-        non_norm_rmse_total = 0
         r2_total = 0
 
         if not eval:
@@ -160,14 +159,14 @@ class Supervisor(tune.Trainable):
         else:
             self.model.eval()
 
-        for i, (x_, y_) in enumerate(pbar := tqdm(loader, total=len(loader))):
+        for i, (x, y) in enumerate(pbar := tqdm(loader, total=len(loader))):
             # mini batch gradients
-            n_mb = 4
-            mse_mb = 0
-            mae_mb = 0
-            non_mae_mb = 0
-            norm_rmse_mb = 0
-            r2_mb = 0
+            # n_mb = 4
+            # mse_mb = 0
+            # mae_mb = 0
+            # non_mae_mb = 0
+            # norm_rmse_mb = 0
+            # r2_mb = 0
 
             # Positional embedding
             # x_idxs, y_idxs = np.meshgrid(np.arange(96), np.arange(144))
@@ -179,106 +178,92 @@ class Supervisor(tune.Trainable):
             # pos_idxs = torch.from_numpy(pos_idxs).int()
             # pos_idxs = pos_idxs.repeat(24, 1, 1).to(device)
 
-            for bg_idx in range(n_mb):
-                x = x_[:, bg_idx::n_mb]
-                y = y_[:, bg_idx::n_mb]
+            # for bg_idx in range(n_mb):
+            #     x = x_[:, bg_idx::n_mb]
+            #     y = y_[:, bg_idx::n_mb]
                 # pos_idxs_mb = pos_idxs[bg_idx::n_mb]
 
-                if eval is False:  # Random dropout during training
-                    dropout = self.config['batch_dropout']
-                    n = int(x.shape[1] * (1 - dropout))
-                    idxs = np.random.permutation(np.arange(x.shape[1]))[:n]
-                    x = x[:, idxs, :]
-                    y = y[:, idxs, :]
-                    # pos_idxs_mb = pos_idxs_mb[idxs]
+            if eval is False:  # Random dropout during training
+                dropout = self.config['batch_dropout']
+                n = int(x.shape[1] * (1 - dropout))
+                idxs = np.random.permutation(np.arange(x.shape[1]))[:n]
+                x = x[:, idxs, :]
+                y = y[:, idxs, :]
+                # pos_idxs_mb = pos_idxs_mb[idxs]
 
-                x = x.reshape(-1, 1, x.shape[-1]).to(device)
-                y = y.reshape(-1, 1, y.shape[-1]).to(device)
+            x = x.reshape(-1, 1, x.shape[-1]).to(device)
+            y = y.reshape(-1, 1, y.shape[-1]).to(device)
 
-                with torch.cuda.amp.autocast():
-                    l2_output_mu = self.model(x)
+            with torch.cuda.amp.autocast():
+                l2_output_mu = self.model(x)
 
-                    mae = mae_loss(l2_output_mu, y)
-                    loss = mae
+                mse = mse_loss(l2_output_mu, y)
+                r_score = self.loss_fn(l2_output_mu, y).detach()
+                loss = mse
 
-                    if not eval:
-                        self.optim.zero_grad()
-                        self.scaler.scale(loss).backward()
-                        self.scaler.step(self.optim)
-                        self.scaler.update()
-                        if i == 0:
-                            self.scheduler.step()
+                if not eval:
+                    self.optim.zero_grad()
+                    self.scaler.scale(loss).backward()
+                    self.scaler.step(self.optim)
+                    self.scaler.update()
+                    if i == 0:
+                        self.scheduler.step()
 
-                mse = mse_loss(l2_output_mu, y, mean=True).detach()
-                norm_rmse = norm_rmse_loss(l2_output_mu, y).detach()
-                non_y_pred = self.y_scaler_minmax.inverse_transform(
-                    l2_output_mu.squeeze().detach().cpu().numpy())
-                non_y = self.y_scaler_minmax.inverse_transform(
-                    y.squeeze().detach().cpu().numpy())
-                non_mae = mae_metric(non_y_pred, non_y)
-                r2_mean = 0
-                for v in range(non_y.shape[-1]):
-                    result = linregress(non_y[:, v], non_y_pred[:, v])
-                    r2_mean += result.rvalue ** 2
-                r2_mean = r2_mean / (non_y_pred.shape[-1])
+            mae = mae_loss(l2_output_mu, y, mean=True).detach()
+            norm_rmse = norm_rmse_loss(l2_output_mu, y).detach()
+            non_y_pred = self.y_scaler_minmax.inverse_transform(
+                l2_output_mu.squeeze().detach().cpu().numpy())
+            non_y = self.y_scaler_minmax.inverse_transform(
+                y.squeeze().detach().cpu().numpy())
+            non_mae = mae_metric(non_y_pred, non_y)
 
-                mae_mb += mae
-                mse_mb += mse
-                non_mae_mb += non_mae
-                norm_rmse_mb += norm_rmse
-                r2_mean_mb += r2_mean
-
-            mae_mb /= n_mb
-            mse_mb /= n_mb
-            non_mae_mb /= n_mb
-            norm_rmse_mb /= n_mb
-            r2_mean_mb /= n_mb
+            r_score[r_score > 1.0] = 1.0
+            r_score[r_score < -1.0] = -1.0
+            r2 = (r_score ** 2).mean()
 
             if not eval:
-                writer.add_scalar("mse", mse_mb.item(), self.global_batch_idx)
-                writer.add_scalar("mae", mae_mb.item(), self.global_batch_idx)
-                writer.add_scalar("norm_rmse", norm_rmse_mb,
+                writer.add_scalar("mse", mse.item(), self.global_batch_idx)
+                writer.add_scalar("mae", mae.item(), self.global_batch_idx)
+                writer.add_scalar("norm_rmse", norm_rmse,
                                   self.global_batch_idx)
-                writer.add_scalar("non_mae", non_mae_mb.item(),
+                writer.add_scalar("non_mae", non_mae.item(),
                                   self.global_batch_idx)
-                writer.add_scalar("r2", r2_mean_mb, self.global_batch_idx)
+                writer.add_scalar("r2", r2, self.global_batch_idx)
                 writer.flush()
                 self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
-            pbar.set_postfix_str(
-                f"R2: {r2_mean_mb.item():.6f} MAE: {mae_mb.item():.6f} NON-MAE: {non_mae_mb.item():.6f}")
+            pbar.set_postfix_str(f"R2: {r2.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
 
-            mse_total += mae_mb
-            mae_total += mae.item()
+            mse_total += mse.detach()
+            mae_total += mae
+            non_mae_total += non_mae
             norm_rmse_total += norm_rmse
-            non_mae_total += non_mae.item()
-            r2_mean_mb += r2_mean
+            r2_total += r2
 
         mse_total /= (i+1) 
         mae_total /= (i+1) 
         non_mae_total /= (i+1) 
-        norm_rmse_total /= (i+1) 
-        non_norm_rmse_total /= (i+1) 
-        r2_mean_total /= (i+1) 
+        norm_rmse_total /= (i+1)
+        r2_total /= (i+1) 
 
         if eval:
             writer.add_scalar("mse", mse_total, self.global_batch_idx)
             writer.add_scalar("mae", mae_total, self.global_batch_idx)
             writer.add_scalar("norm_rmse", norm_rmse_total, self.global_batch_idx)
             writer.add_scalar("non_mae", non_mae_total, self.global_batch_idx)
-            writer.add_scalar("r2", r2_mean_total, self.global_batch_idx)
+            writer.add_scalar("r2", r2_total, self.global_batch_idx)
             writer.flush()
 
         end = time.time()
         total_time = end - start
 
         self.logger.info(
-            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - R2: {r2_mean_total:.6f} NON-MAE: {non_mae_total:.6f}"
+            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - R2: {r2_total:.6f} NON-MAE: {non_mae_total:.6f}"
             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}"
-            + f"LR: {self.scheduler.get_last_lr()[0]:6f}")
+            + f" LR: {self.scheduler.get_last_lr()[0]:6f}")
 
-        return non_mae_total
+        return r2_total
 
     def train_model(self):
         try:
@@ -291,7 +276,7 @@ class Supervisor(tune.Trainable):
                 self.config['global_batch_idx'] = self.global_batch_idx
 
                 save_best = False
-                if valid_loss < self.best_loss:
+                if valid_loss > self.best_loss:
                     self.best_loss = valid_loss
                     self.config['best_loss'] = self.best_loss
                     save_best = True
@@ -383,6 +368,6 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     # seed = args.seed
 
-    device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:1" if torch.cuda.is_available() else 'cpu')
 
     main()

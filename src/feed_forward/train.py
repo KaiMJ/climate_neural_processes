@@ -15,7 +15,7 @@ from tqdm import tqdm
 from lib.utils import *
 from lib.loss import *
 from lib.dataset import *
-from lib.model import Model, NegRLoss
+from lib.model import Model
 from scipy.stats import linregress
 
 cwd = os.getcwd()
@@ -192,11 +192,6 @@ class Supervisor():
                 r_score[r_score < -1.0] = -1.0
                 r2 = (r_score ** 2).mean()
 
-                mae_total += mae
-                mse_total += mse.detach()
-                non_mae_total += non_mae
-                norm_rmse_total += norm_rmse
-                r2_total += r2
 
             if not eval:
                 writer.add_scalar("mse", mse.item(), self.global_batch_idx)
@@ -212,17 +207,16 @@ class Supervisor():
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(f"R2: {r2.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
 
-            mse_total += mse.item()
-            mae_total += mae.item()
+            mse_total += mse.detach()
+            mae_total += mae
+            non_mae_total += non_mae
             norm_rmse_total += norm_rmse
-            non_mae_total += non_mae.item()
             r2_total += r2
 
         mse_total /= (i+1) 
         mae_total /= (i+1) 
         non_mae_total /= (i+1) 
-        norm_rmse_total /= (i+1) 
-        non_norm_rmse_total /= (i+1) 
+        norm_rmse_total /= (i+1)
         r2_total /= (i+1) 
 
         if eval:
@@ -239,7 +233,7 @@ class Supervisor():
         self.logger.info(
             f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - R2: {r2_total:.6f} NON-MAE: {non_mae_total:.6f}"
             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}"
-            + f"LR: {self.scheduler.get_last_lr()[0]:6f}")
+            + f" LR: {self.scheduler.get_last_lr()[0]:6f}")
 
         return r2_total
 
@@ -254,7 +248,7 @@ class Supervisor():
                 self.config['global_batch_idx'] = self.global_batch_idx
 
                 save_best = False
-                if valid_loss < self.best_loss:
+                if valid_loss > self.best_loss:
                     self.best_loss = valid_loss
                     self.config['best_loss'] = self.best_loss
                     save_best = True
