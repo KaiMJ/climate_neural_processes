@@ -21,6 +21,8 @@ from scipy.stats import linregress
 cwd = os.getcwd()
 
 # tune.Trainable
+
+
 class Supervisor():
     """
         setup and step is for ray tune.
@@ -108,12 +110,13 @@ class Supervisor():
         y_scaler_minmax = dill.load(
             open(f"{cwd}/../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
 
-         # Change to first 26 variables
+        # Change to first 26 variables
         # Follow Azis's process. X -> X/(max(abs(X))
         x_scaler_minmax.min = x_scaler_minmax.min * 0
         x_scaler_minmax.max = np.abs(x_scaler_minmax.max)
         y_scaler_minmax.min = y_scaler_minmax.min[:26] * 0
-        y_scaler_minmax.max = np.abs(y_scaler_minmax.max[:26])       # Change to first 26 variables
+        # Change to first 26 variables
+        y_scaler_minmax.max = np.abs(y_scaler_minmax.max[:26])
         self.x_scaler_minmax = x_scaler_minmax
         self.y_scaler_minmax = y_scaler_minmax
 
@@ -129,8 +132,10 @@ class Supervisor():
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
 
-        self.optim = torch.optim.Adam(self.model.parameters(), lr=self.config['lr'])
-        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optim, gamma=self.config['decay_rate'])
+        self.optim = torch.optim.Adam(
+            self.model.parameters(), lr=self.config['lr'])
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
+            self.optim, gamma=self.config['decay_rate'])
 
         self.logger.info(
             f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}")
@@ -192,7 +197,6 @@ class Supervisor():
                 r_score[r_score < -1.0] = -1.0
                 r2 = (r_score ** 2).mean()
 
-
             if not eval:
                 writer.add_scalar("mse", mse.item(), self.global_batch_idx)
                 writer.add_scalar("mae", mae.item(), self.global_batch_idx)
@@ -205,24 +209,26 @@ class Supervisor():
                 self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
-            pbar.set_postfix_str(f"R2: {r2.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
+            pbar.set_postfix_str(
+                f"R2: {r2.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
 
             mse_total += mse.detach()
             mae_total += mae
             non_mae_total += non_mae
             norm_rmse_total += norm_rmse
-            r2_total += r2
+            r2_total += r2.item()
 
-        mse_total /= (i+1) 
-        mae_total /= (i+1) 
-        non_mae_total /= (i+1) 
+        mse_total /= (i+1)
+        mae_total /= (i+1)
+        non_mae_total /= (i+1)
         norm_rmse_total /= (i+1)
-        r2_total /= (i+1) 
+        r2_total /= (i+1)
 
         if eval:
             writer.add_scalar("mse", mse_total, self.global_batch_idx)
             writer.add_scalar("mae", mae_total, self.global_batch_idx)
-            writer.add_scalar("norm_rmse", norm_rmse_total, self.global_batch_idx)
+            writer.add_scalar("norm_rmse", norm_rmse_total,
+                              self.global_batch_idx)
             writer.add_scalar("non_mae", non_mae_total, self.global_batch_idx)
             writer.add_scalar("r2", r2_total, self.global_batch_idx)
             writer.flush()
@@ -254,6 +260,7 @@ class Supervisor():
                     save_best = True
                     self.logger.info(
                         f"Best validation Loss: {self.best_loss:.6f}")
+                    self.config['patience'] = self.config['max_patience']
                 elif self.config['patience'] != -1:  # if patience == -1, run forever
                     self.config['patience'] = self.config['patience'] - 1
                     self.logger.info(f"Patience: {self.config['patience']}")

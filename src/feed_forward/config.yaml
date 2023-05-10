@@ -10,7 +10,8 @@ global_batch_idx: 0
 decay_steps: 10
 decay_rate: 0.9
 
-patience: 20
+max_patience: 50
+patience: 50
 best_loss: 0
 
 model:
