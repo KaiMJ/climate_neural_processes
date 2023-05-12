@@ -1,6 +1,6 @@
 title: NN_train
 
-data_dir: /data/allen/climate_data/
+data_dir: /home/mkim/Nserver/climate_neural_processes/data
 log_dir: logs
 
 batch_size: 1
@@ -8,7 +8,7 @@ lr: 0.000227
 global_batch_idx: 0
 
 decay_steps: 10
-decay_rate: 0.9
+decay_rate: 0.91
 
 patience: 20
 best_loss: 0
@@ -17,10 +17,10 @@ model:
   l2_input_dim: 108
   l2_output_dim: 26
   num_layers: 7
-  num_nodes: 128
+  num_nodes: 512
   dropout_rate: 0.01
   leaky_relu_slope: 0.15
   dropout_rate: 0.01
 
   
-load_checkpoint: false
+load_checkpoint: NN_train_seed0_lr0.000227_bs_1_Tue May  2 18:57:23 2023

@@ -152,7 +152,6 @@ class Supervisor(tune.Trainable):
         mae_total = 0
         non_mae_total = 0
         norm_rmse_total = 0
-        non_norm_rmse_total = 0
         r2_total = 0
 
         if not eval:
@@ -170,7 +169,6 @@ class Supervisor(tune.Trainable):
                 mse = mse_loss(l2_output_mu, y, mean=True)
                 r_score = self.loss_fn(l2_output_mu, y).detach()
                 loss = mse
-                # loss = -r_score.mean()
 
                 if not eval:
                     self.optim.zero_grad()
@@ -188,6 +186,7 @@ class Supervisor(tune.Trainable):
                     y.squeeze().detach().cpu().numpy())
                 non_mae = mae_metric(non_y_pred, non_y)
 
+                r_score = r_score.detach()
                 r_score[r_score > 1.0] = 1.0
                 r_score[r_score < -1.0] = -1.0
                 r2 = (r_score ** 2).mean()
@@ -205,25 +204,18 @@ class Supervisor(tune.Trainable):
                                   self.global_batch_idx)
                 writer.add_scalar("non_mae", non_mae.item(),
                                   self.global_batch_idx)
-                writer.add_scalar("r2", r2, self.global_batch_idx)
+                writer.add_scalar("r2", r2.item(), self.global_batch_idx)
                 writer.flush()
                 self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(f"R2: {r2.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
 
-            mse_total += mse.item()
-            mae_total += mae.item()
-            norm_rmse_total += norm_rmse
-            non_mae_total += non_mae.item()
-            r2_total += r2
-
         mse_total /= (i+1) 
         mae_total /= (i+1) 
         non_mae_total /= (i+1) 
         norm_rmse_total /= (i+1) 
-        non_norm_rmse_total /= (i+1) 
-        r2_total /= (i+1) 
+        r2_total /= (i+1)
 
         if eval:
             writer.add_scalar("mse", mse_total, self.global_batch_idx)
@@ -241,7 +233,7 @@ class Supervisor(tune.Trainable):
             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}"
             + f"LR: {self.scheduler.get_last_lr()[0]:6f}")
 
-        return r2_total
+        return r2_total.item()
 
     def train_model(self):
         try:
@@ -254,7 +246,7 @@ class Supervisor(tune.Trainable):
                 self.config['global_batch_idx'] = self.global_batch_idx
 
                 save_best = False
-                if valid_loss < self.best_loss:
+                if valid_loss > self.best_loss:
                     self.best_loss = valid_loss
                     self.config['best_loss'] = self.best_loss
                     save_best = True
@@ -346,6 +338,6 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     # seed = args.seed
 
-    device = torch.device("cuda:2" if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 
     main()
