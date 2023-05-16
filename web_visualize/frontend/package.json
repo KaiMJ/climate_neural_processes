@@ -3,9 +3,11 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "proxy": "http://0.0.0.0:5001/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "api": "flask run --host=0.0.0.0 -p 5001",
     "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },
