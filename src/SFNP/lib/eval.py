@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 class Evaluator():
     def __init__(self, dirpath):
         self.dirpath = dirpath
@@ -56,15 +57,15 @@ class Evaluator():
         trainset = l2Dataset(self.l2_x_train, self.l2_y_train,
                              x_scaler=l2_x_scaler_minmax, y_scaler=l2_y_scaler_minmax, variables=26)
         self.trainloader = DataLoader(trainset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False,
-                                      num_workers=4, pin_memory=True)
+                                      num_workers=2, pin_memory=True)
         validset = l2Dataset(self.l2_x_valid, self.l2_y_valid,
                              x_scaler=l2_x_scaler_minmax, y_scaler=l2_y_scaler_minmax, variables=26)
         self.validloader = DataLoader(validset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False,
-                                      num_workers=4, pin_memory=True)
+                                      num_workers=2, pin_memory=True)
         testset = l2Dataset(self.l2_x_test, self.l2_y_test,
                             x_scaler=l2_x_scaler_minmax, y_scaler=l2_y_scaler_minmax, variables=26)
         self.testloader = DataLoader(testset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False,
-                                     num_workers=4, pin_memory=True)
+                                     num_workers=2, pin_memory=True)
 
         self.l2_y_scaler_minmax = l2_y_scaler_minmax
 
@@ -74,6 +75,7 @@ class Evaluator():
         return self.non_mae, self.nmae, self.r
 
     def forward_pass(self, data):
+        print('forward pass')
         with torch.no_grad():
             x, y = data
 
@@ -96,21 +98,24 @@ class Evaluator():
             non_y = self.l2_y_scaler_minmax.inverse_transform(
                 y_target.squeeze().cpu().numpy())
             return non_y, non_y_pred, context_idxs, target_idxs
-        
+
     def get_loss(self):
         step_size = len(self.trainloader)
-        train_event_file = sorted(glob.glob(os.path.join(self.dirpath, "runs/train/events.out.tfevents*")), key=os.path.getctime)[-1]
-        valid_event_file = sorted(glob.glob(os.path.join(self.dirpath, "runs/valid/events.out.tfevents*")), key=os.path.getctime)[-1]
+        train_event_file = sorted(glob.glob(os.path.join(
+            self.dirpath, "runs/train/events.out.tfevents*")), key=os.path.getctime)[-1]
+        valid_event_file = sorted(glob.glob(os.path.join(
+            self.dirpath, "runs/valid/events.out.tfevents*")), key=os.path.getctime)[-1]
         train_acc = EventAccumulator(train_event_file)
         valid_acc = EventAccumulator(valid_event_file)
         train_acc.Reload()
         valid_acc.Reload()
 
-        valid_values = [ s.value for s in valid_acc.Scalars("non_mae")]
+        valid_values = [s.value for s in valid_acc.Scalars("non_mae")]
         n_epochs = len(valid_values)
 
         # Change each iteration to epochs
-        train_values = np.array([ s.value for s in train_acc.Scalars("non_mae")])
+        train_values = np.array(
+            [s.value for s in train_acc.Scalars("non_mae")])
         max_n = min(len(train_values) // step_size, n_epochs)
         train_values = train_values[:max_n * step_size]
         valid_values = valid_values[:max_n]
@@ -183,7 +188,8 @@ class Evaluator():
             loader = self.trainloader
 
         for i, data in enumerate(loader):
-            if i < day: continue
+            if i < day:
+                continue
             x, y = data
 
             with torch.no_grad():

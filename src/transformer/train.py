@@ -1,5 +1,5 @@
 import argparse
-# from ray import tune, air
+from ray import tune, air
 import time
 import random
 import dill
@@ -20,10 +20,8 @@ from scipy.stats import linregress
 
 cwd = os.getcwd()
 
-# tune.Trainable
 
-
-class Supervisor():
+class Supervisor(tune.Trainable):
     """
         setup and step is for ray tune.
     """
@@ -137,7 +135,7 @@ class Supervisor():
         self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
             self.optim, gamma=self.config['decay_rate'])
         self.logger.info(
-            f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}")
+            f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}. Device={device}")
         self.scaler = torch.cuda.amp.GradScaler()
         self.loss_fn = NegRLoss()
 
@@ -288,9 +286,9 @@ class Supervisor():
                     save_best = True
                     self.logger.info(
                         f"Best validation Loss: {self.best_loss:.6f}")
-                    self.config['patience'] = self.config['max_patience']
+                    self.config['patience'] = 0
                 elif self.config['patience'] != -1:  # if patience == -1, run forever
-                    self.config['patience'] = self.config['patience'] - 1
+                    self.config['patience'] = self.config['patience'] + 1
                     self.logger.info(f"Patience: {self.config['patience']}")
 
                 save_dict = {
@@ -308,7 +306,7 @@ class Supervisor():
                     torch.save(save_dict, self.config['best_path'])
                 torch.save(save_dict, self.config['checkpoint_path'])
 
-                if self.config['patience'] <= 0:
+                if self.config['patience'] == self.config['max_patience']:
                     self.logger.info("Early stopping")
                     break
                 self.epoch += 1
@@ -320,28 +318,27 @@ class Supervisor():
 def main():
     if TUNE:
         num_samples = 30
-        max_iter = 2
-
+        max_iter = 3
+        os.environ["CUDA_VISIBLE_DEVICES"] = "1"
         param_space = {
             "train": {
                 "lr": tune.qloguniform(1e-6, 1e-3, 1e-6),
-                "batch_dropout": tune.uniform(0, 0.5),
-                "weight_decay": tune.uniform(0, 0.2),
-                # "decay_steps": 10,
-                # "decay_rate": 0.9
+                "batch_dropout": tune.uniform(0, 0.2),
+                "weight_decay": tune.uniform(0, 0.3),
+                "decay_rate": tune.uniform(0.9, 1)
             },
             "model": {
                 "num_heads": tune.choice([4, 8, 16]),
-                "attention_layers": tune.choice([4, 8, 12]),
-                "n_embd": tune.choice([32, 48, 64, 96, 128]),
-                "dropout": tune.uniform(0, 0.4),
+                "attention_layers": tune.choice([6, 8, 10, 12]),
+                "n_embd": tune.choice([128, 256]),
+                "dropout": tune.uniform(0, 0.3),
             },
         }
         tuner = tune.Tuner(
-            tune.with_resources(Supervisor, {"cpu": 1, "gpu": 0.5}),
+            tune.with_resources(Supervisor, {"cpu": 12, "gpu": 1}),
             tune_config=tune.TuneConfig(
                 scheduler=tune.schedulers.ASHAScheduler(
-                    mode="min", metric="loss", max_t=max_iter),
+                    mode="max", metric="loss", max_t=max_iter),
                 num_samples=num_samples,
             ),
             run_config=air.RunConfig(
@@ -368,13 +365,12 @@ def main():
 
 if __name__ == "__main__":
     TUNE = False
-
     seed = 0
     # parser = argparse.ArgumentParser()
     # parser.add_argument("seed", type=int, help="seed for random number generator")
     # args = parser.parse_args()
     # seed = args.seed
 
-    device = torch.device("cuda:1" if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:0" if torch.cuda.is_available() else 'cpu')
 
     main()

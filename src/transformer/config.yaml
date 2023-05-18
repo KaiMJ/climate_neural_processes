@@ -1,18 +1,17 @@
-title: transformer_train
-
+title: lr_0.000025
 data_dir: /data/kai
 log_dir: logs
 
 batch_size: 1
-lr: 0.000227
+lr: 0.000025
 global_batch_idx: 0
 batch_dropout: 0.1
 
-weight_decay: 0.04227092357481125
-decay_steps: 10
+weight_decay: 0.05
 decay_rate: 0.95
 
-patience: 50
+max_patience: 25
+patience: 0
 best_loss: 0
 
 model:

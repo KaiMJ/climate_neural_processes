@@ -2,21 +2,35 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import sys, os
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath("__file__")), '../..'))
+import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(
+    os.path.abspath("__file__")), '../..'))
+
 
 class MLP_Encoder(nn.Module):
 
-    def __init__(self, in_dim, out_dim, hidden_layers=2, hidden_dim=32):
-        super().__init__()
+    def __init__(self,
+                 in_dim,
+                 out_dim,
+                 hidden_layers,
+                 hidden_dim,
+                 leaky_relu_slope,
+                 dropout_rate):
 
-        layers = [nn.Linear(in_dim, hidden_dim), nn.ELU()]
-        for _ in range(hidden_layers - 1):
-            # layers.append(nn.LayerNorm(hidden_dim))
-            layers += [nn.Linear(hidden_dim, hidden_dim), nn.ELU()]
-        # layers.append(nn.BatchNorm1d(hidden_dim))
+        nn.Module.__init__(self)
+
+        layers = []
+        for i in range(hidden_layers):
+            if i == 0:
+                layers.append(nn.Linear(in_dim, hidden_dim))
+            else:
+                layers.append(nn.Linear(hidden_dim, hidden_dim))
+            layers.append(nn.BatchNorm1d(1))
+            layers.append(nn.LeakyReLU(leaky_relu_slope))
+            layers.append(nn.Dropout(dropout_rate))
         layers.append(nn.Linear(hidden_dim, hidden_dim))
-        
+
         self.model = nn.Sequential(*layers)
         self.mean_out = nn.Linear(hidden_dim, out_dim)
 
@@ -25,29 +39,35 @@ class MLP_Encoder(nn.Module):
         mean = self.mean_out(output)
         return mean
 
+
 class MLP_ZEncoder(nn.Module):
     """Takes an r representation and produces the mean & variance of the 
     normally distributed function encoding, z."""
-    def __init__(self, 
-            in_dim, 
-            out_dim,
-            hidden_layers=2,
-            hidden_dim=32):
+
+    def __init__(self,
+                 in_dim,
+                 out_dim,
+                 hidden_layers,
+                 hidden_dim,
+                 leaky_relu_slope,
+                 dropout_rate):
 
         nn.Module.__init__(self)
 
-        layers = [nn.Linear(in_dim, hidden_dim), nn.ELU()]
-        for _ in range(hidden_layers - 1):
-            # layers.append(nn.LayerNorm(hidden_dim))
-            layers += [nn.Linear(hidden_dim, hidden_dim), nn.ELU()]
-        # layers.append(nn.BatchNorm1d(hidden_dim))
+        layers = []
+        for i in range(hidden_layers):
+            if i == 0:
+                layers.append(nn.Linear(in_dim, hidden_dim))
+            else:
+                layers.append(nn.Linear(hidden_dim, hidden_dim))
+            layers.append(nn.LeakyReLU(leaky_relu_slope))
+            layers.append(nn.Dropout(dropout_rate))
         layers.append(nn.Linear(hidden_dim, hidden_dim))
 
         self.model = nn.Sequential(*layers)
         self.mean_out = nn.Linear(hidden_dim, out_dim)
         self.cov_out = nn.Linear(hidden_dim, out_dim)
         self.cov_m = nn.Sigmoid()
-
 
     def forward(self, inputs):
         output = self.model(inputs)
@@ -56,23 +76,30 @@ class MLP_ZEncoder(nn.Module):
 
         return mean, cov
 
+
 class MLP_Decoder(nn.Module):
 
-    def __init__(self, 
-            in_dim, 
-            out_dim, 
-            hidden_layers=2,
-            hidden_dim=32):
+    def __init__(self,
+                 in_dim,
+                 out_dim,
+                 hidden_layers,
+                 hidden_dim,
+                 leaky_relu_slope,
+                 dropout_rate):
 
         nn.Module.__init__(self)
 
-        layers = [nn.Linear(in_dim, hidden_dim), nn.ELU()]
-        for _ in range(hidden_layers - 1):
-            # layers.append(nn.LayerNorm(hidden_dim))
-            layers += [nn.Linear(hidden_dim, hidden_dim), nn.ELU()]
-        # layers.append(nn.BatchNorm1d(hidden_dim))
+        layers = []
+        for i in range(hidden_layers):
+            if i == 0:
+                layers.append(nn.Linear(in_dim, hidden_dim))
+            else:
+                layers.append(nn.Linear(hidden_dim, hidden_dim))
+            layers.append(nn.BatchNorm1d(1))
+            layers.append(nn.LeakyReLU(leaky_relu_slope))
+            layers.append(nn.Dropout(dropout_rate))
         layers.append(nn.Linear(hidden_dim, hidden_dim))
-        
+
         self.model = nn.Sequential(*layers)
         self.mean_out = nn.Linear(hidden_dim, out_dim)
         self.cov_out = nn.Linear(hidden_dim, out_dim)
@@ -94,41 +121,48 @@ class Model(nn.Module):
         self.z_hidden_dim = int(config['z_hidden_dim'])
         self.z_dim = int(config['z_dim'])
 
-        self.input_dim = int(config['input_dim']) #fully connected, 50+3
+        self.input_dim = int(config['input_dim'])  # fully connected, 50+3
         self.output_dim = int(config['output_dim'])
         self.hidden_dim = int(config['hidden_dim'])
         self.encoder_output_dim = self.z_dim
         self.decoder_input_dim = self.z_dim + self.input_dim
 
-        self.l2_encoder_model = MLP_Encoder(self.input_dim+self.output_dim, self.encoder_output_dim, self.hidden_layers, self.hidden_dim)
-        self.l2_z_encoder_model = MLP_ZEncoder(self.z_dim, self.z_dim, self.z_hidden_layers, self.z_hidden_dim)
-        self.l2_decoder_model = MLP_Decoder(self.decoder_input_dim, self.output_dim, self.hidden_layers, self.hidden_dim)
+        self.leaky_relu_slope = config['leaky_relu_slope']
+        self.dropout_rate = config['dropout_rate']
+
+        self.l2_encoder_model = MLP_Encoder(
+            self.input_dim+self.output_dim, self.encoder_output_dim, self.hidden_layers, self.hidden_dim, self.leaky_relu_slope, self.dropout_rate)
+        self.l2_z_encoder_model = MLP_ZEncoder(
+            self.z_dim, self.z_dim, self.z_hidden_layers, self.z_hidden_dim,
+            self.leaky_relu_slope, self.dropout_rate)
+        self.l2_decoder_model = MLP_Decoder(self.decoder_input_dim, self.output_dim, self.hidden_layers, self.hidden_dim,
+                                            self.leaky_relu_slope, self.dropout_rate)
 
     def count_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def sample_z(self, mean, var, n=1):
         """Reparameterisation trick."""
-        eps = torch.autograd.Variable(var.data.new(n,var.size(0),var.size(1)).normal_()).to(mean.device)
+        eps = torch.autograd.Variable(var.data.new(
+            n, var.size(0), var.size(1)).normal_()).to(mean.device)
         std = torch.sqrt(var)
 
         return torch.unsqueeze(mean, dim=0) + torch.unsqueeze(std, dim=0) * eps
 
     def xy_to_r(self, x, y):
-        r_mu = self.l2_encoder_model(torch.cat([x, y],dim=-1))
+        r_mu = self.l2_encoder_model(torch.cat([x, y], dim=-1))
 
         return r_mu
 
     def z_to_y(self, x, zs):
-        output = self.l2_decoder_model(torch.cat([x,zs], dim=-1))
+        output = self.l2_decoder_model(torch.cat([x, zs], dim=-1))
 
         return output
 
     def mean_z_agg(self, r):
-        r_agg = torch.mean(r,dim=0)
+        r_agg = torch.mean(r, dim=0)
         z_mu, z_cov = self.l2_z_encoder_model(r_agg)
         return z_mu, z_cov
-
 
     def forward(self, x_context, y_context, x_target, x_all=None, y_all=None):
         l2_r_c = self.xy_to_r(x_context, y_context)

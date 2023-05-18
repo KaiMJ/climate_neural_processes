@@ -92,16 +92,16 @@ class Supervisor(tune.Trainable):
         # Train and validation data split
         # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004
         l2_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
         l2_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
 
-        split_n = int(365*0.8)
+        n = 365
+        split_n = int(n*0.8)
         l2_x_train = l2_x_data[:split_n]
         l2_y_train = l2_y_data[:split_n]
-        l2_x_valid = l2_x_data[split_n:365]
-        l2_y_valid = l2_y_data[split_n:365]
-
+        l2_x_valid = l2_x_data[split_n:n]
+        l2_y_valid = l2_y_data[split_n:n]
         x_scaler_minmax = dill.load(
             open(f"{cwd}/../../scalers/x_CAM5_minmax_scaler.dill", 'rb'))
         y_scaler_minmax = dill.load(

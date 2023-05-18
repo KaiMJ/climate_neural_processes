@@ -1,5 +1,5 @@
 import argparse
-# from ray import tune, air
+from ray import tune, air
 import time
 import random
 import dill
@@ -20,10 +20,7 @@ from scipy.stats import linregress
 
 cwd = os.getcwd()
 
-# tune.Trainable
-
-
-class Supervisor():
+class Supervisor(tune.Trainable):
     """
         setup and step is for ray tune.
     """
@@ -123,11 +120,11 @@ class Supervisor():
         train_dataset = l2Dataset(
             l2_x_train, l2_y_train, x_scaler=x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
         self.train_loader = DataLoader(
-            train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=4, pin_memory=True)
+            train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=2, pin_memory=True)
         val_dataset = l2Dataset(
             l2_x_valid, l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
         self.val_loader = DataLoader(
-            val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=4, pin_memory=True)
+            val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
@@ -310,7 +307,7 @@ def main():
             },
         }
         tuner = tune.Tuner(
-            tune.with_resources(Supervisor, {"cpu": 1, "gpu": 0.5}),
+            tune.with_resources(Supervisor, {"cpu": 8, "gpu": 0.5}),
             tune_config=tune.TuneConfig(
                 scheduler=tune.schedulers.ASHAScheduler(
                     mode="min", metric="loss", max_t=max_iter),
@@ -347,6 +344,6 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     # seed = args.seed
 
-    device = torch.device("cuda:2" if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:1" if torch.cuda.is_available() else 'cpu')
 
     main()
