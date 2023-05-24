@@ -1,4 +1,4 @@
-title: lr_0.000025
+title: transfer
 data_dir: /data/kai
 log_dir: logs
 
@@ -10,7 +10,7 @@ batch_dropout: 0.1
 weight_decay: 0.05
 decay_rate: 0.95
 
-max_patience: 25
+max_patience: 50
 patience: 0
 best_loss: 0
 
@@ -23,3 +23,4 @@ model:
   dropout: 0.01
   
 load_checkpoint: false
+transfer_learning: logs/low_seed0_lr2.5e-05_bs_1_Thu May 18 07:56:21 2023/best.pt

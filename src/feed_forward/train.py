@@ -12,7 +12,7 @@ from torch.optim.lr_scheduler import StepLR, CyclicLR
 from torch.utils.data import DataLoader
 import torch
 from tqdm import tqdm
-from lib.utils import *
+from climate_neural_processes.scalers.utils import *
 from lib.loss import *
 from lib.dataset import *
 from lib.model import Model
@@ -128,7 +128,8 @@ class Supervisor(tune.Trainable):
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
-
+        if self.config["transfer_learning"]:
+            self.model.load_state_dict(torch.load(self.config["transfer_learning"])["model"])
         self.optim = torch.optim.Adam(
             self.model.parameters(), lr=self.config['lr'])
         self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
@@ -257,9 +258,9 @@ class Supervisor(tune.Trainable):
                     save_best = True
                     self.logger.info(
                         f"Best validation Loss: {self.best_loss:.6f}")
-                    self.config['patience'] = self.config['max_patience']
+                    self.config['patience'] = 0
                 elif self.config['patience'] != -1:  # if patience == -1, run forever
-                    self.config['patience'] = self.config['patience'] - 1
+                    self.config['patience'] = self.config['patience'] + 1
                     self.logger.info(f"Patience: {self.config['patience']}")
 
                 save_dict = {
@@ -277,7 +278,7 @@ class Supervisor(tune.Trainable):
                     torch.save(save_dict, self.config['best_path'])
                 torch.save(save_dict, self.config['checkpoint_path'])
 
-                if self.config['patience'] <= 0:
+                if self.config['patience'] == self.config['max_patience']:
                     self.logger.info("Early stopping")
                     break
                 self.epoch += 1
@@ -344,6 +345,7 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     # seed = args.seed
 
-    device = torch.device("cuda:1" if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:2" if torch.cuda.is_available() else 'cpu')
 
-    main()
+    with SeedContext(seed):
+        main()

@@ -1,4 +1,4 @@
-title: NN_train
+title: NN_transfer
 
 data_dir: /data/kai/
 log_dir: logs
@@ -10,7 +10,7 @@ global_batch_idx: 0
 decay_rate: 0.9
 
 max_patience: 50
-patience: 50
+patience: 0
 best_loss: 0
 
 model:
@@ -22,5 +22,6 @@ model:
   leaky_relu_slope: 0.15
   dropout_rate: 0.01
 
-  
+
 load_checkpoint: false
+transfer_learning: logs/NN_low_seed0_lr0.000227_bs_1_Thu May 18 07:42:58 2023/best.pt

@@ -161,83 +161,14 @@ class Model(nn.Module):
 
         # (B, 96*144, 132)
         self.embedding = nn.Linear(input_dim, n_embd, bias=False)
-        self.positional_embedding = nn.Linear(4, n_embd) # [sincosxy, embd size]
         self.dropout = nn.Dropout(dropout)
         self.heads = nn.ModuleList([Block(config) for _ in range(n_layers)])
         self.layer_norm = nn.LayerNorm(n_embd)
-
         self.proj = nn.Linear(n_embd, output_dim)
 
-        # self.embedding.weight = self.proj.weight # https://paperswithcode.com/method/weight-tying
-
-        # Weight Tying
     def forward(self, x, pos=None):
         # B, T, C
         out = self.embedding(x) # [B T C]
-        if pos is not None:
-            pos = self.positional_embedding(pos) # [B 1 C]
-            out = out + pos
-        out = self.dropout(out)
-        for block in self.heads:
-            out = block(out)
-        out = self.layer_norm(out)
-        out = self.proj(out)
-
-        return out
-
-
-class NoAttention(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.linear1 = nn.Linear(config['n_embd'], 3 * config['n_embd'])
-        self.linear2 = nn.Linear(3 * config['n_embd'], config['n_embd'])
-        self.dropout = nn.Dropout(config['dropout'])
-        self.num_heads = config['num_heads']
-
-    def forward(self, x):
-        out = self.linear1(x)
-        out = new_gelu(out)
-        out = self.linear2(out)
-        out = self.dropout(out)
-        return out
-
-class BaselineBlock(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.ln_1 = nn.LayerNorm(config['n_embd'])
-        self.no_attn = NoAttention(config)
-        self.ln_2 = nn.LayerNorm(config['n_embd'])
-        self.mlp = MLP(config)
-
-    def forward(self, x):
-        x = x + self.no_attn(self.ln_1(x))
-        x = x + self.mlp(self.ln_2(x))
-        return x
-
-class BaselineModel(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-
-        input_dim = config['input_dim']
-        output_dim = config['output_dim']
-        n_embd = config['n_embd']
-        num_heads = config['num_heads']
-        dropout = config['dropout']
-
-        self.embedding = nn.Linear(input_dim, n_embd, bias=False)
-        self.dropout = nn.Dropout(dropout)
-        self.heads = nn.ModuleList([BaselineBlock(config) for _ in range(num_heads)])
-        self.layer_norm = nn.LayerNorm(n_embd)
-
-        self.proj = nn.Linear(n_embd, output_dim)
-
-        # self.embedding.weight = self.proj.weight # https://paperswithcode.com/method/weight-tying
-
-        # Weight Tying
-    def forward(self, x):
-        # B, T, C
-        out = self.embedding(x)
         out = self.dropout(out)
         for block in self.heads:
             out = block(out)

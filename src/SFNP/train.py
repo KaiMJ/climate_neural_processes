@@ -20,6 +20,7 @@ from scipy.stats import linregress
 
 cwd = os.getcwd()
 
+
 class Supervisor(tune.Trainable):
     """
         setup and step is for ray tune.
@@ -92,9 +93,9 @@ class Supervisor(tune.Trainable):
         # Train and validation data split
         # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004
         l2_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
         l2_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
 
         n = 365
         split_n = int(n*0.8)
@@ -104,9 +105,9 @@ class Supervisor(tune.Trainable):
         l2_y_valid = l2_y_data[split_n:n]
 
         x_scaler_minmax = dill.load(
-            open(f"{cwd}/../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
+            open(f"{cwd}/../../scalers/x_CAM5_minmax_scaler.dill", 'rb'))
         y_scaler_minmax = dill.load(
-            open(f"{cwd}/../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
+            open(f"{cwd}/../../scalers/y_CAM5_minmax_scaler.dill", 'rb'))
 
         # Change to first 26 variables
         # Follow Azis's process. X -> X/(max(abs(X))
@@ -131,9 +132,11 @@ class Supervisor(tune.Trainable):
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
+        if self.config["transfer_learning"]:
+            self.model.load_state_dict(torch.load(self.config["transfer_learning"])["model"])
 
-        self.optim = torch.optim.Adam(self.model.parameters(
-        ), lr=self.config['lr'])
+        self.optim = torch.optim.Adam(
+            self.model.parameters(), lr=self.config['lr'])
         self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
             self.optim, gamma=self.config['decay_rate'])
         self.logger.info(
@@ -157,7 +160,6 @@ class Supervisor(tune.Trainable):
         mae_total = 0
         non_mae_total = 0
         norm_rmse_total = 0
-        non_norm_rmse_total = 0
         r2_total = 0
 
         if not eval:
@@ -215,15 +217,14 @@ class Supervisor(tune.Trainable):
                 r_score[r_score < -1.0] = -1.0
                 r2 = (r_score ** 2).mean()
 
-
                 if not eval:
                     writer.add_scalar("nll", nll.item(), self.global_batch_idx)
                     writer.add_scalar("mse", mse.item(), self.global_batch_idx)
                     writer.add_scalar("mae", mae.item(), self.global_batch_idx)
                     writer.add_scalar("norm_rmse", norm_rmse,
-                                    self.global_batch_idx)
+                                      self.global_batch_idx)
                     writer.add_scalar("non_mae", non_mae.item(),
-                                    self.global_batch_idx)
+                                      self.global_batch_idx)
                     writer.add_scalar("r2", r2, self.global_batch_idx)
                     writer.flush()
                     self.global_batch_idx += 1
@@ -231,7 +232,7 @@ class Supervisor(tune.Trainable):
                 pbar.set_description(f"Epoch {self.epoch} {split}")
                 pbar.set_postfix_str(
                     f"R2: {r2.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
-            
+
             nll_total += nll.detach()
             mse_total += mse.detach()
             mae_total += mae
@@ -244,14 +245,14 @@ class Supervisor(tune.Trainable):
         mae_total /= i+1
         non_mae_total /= i+1
         norm_rmse_total /= i+1
-        non_norm_rmse_total /= i+1
         r2_total /= i+1
 
         if eval:
             writer.add_scalar("nll", nll_total, self.global_batch_idx)
             writer.add_scalar("mse", mse_total, self.global_batch_idx)
             writer.add_scalar("mae", mae_total, self.global_batch_idx)
-            writer.add_scalar("norm_rmse", norm_rmse_total, self.global_batch_idx)
+            writer.add_scalar("norm_rmse", norm_rmse_total,
+                              self.global_batch_idx)
             writer.add_scalar("non_mae", non_mae_total, self.global_batch_idx)
             writer.add_scalar("r2", r2_total, self.global_batch_idx)
             writer.flush()
@@ -283,9 +284,9 @@ class Supervisor(tune.Trainable):
                     save_best = True
                     self.logger.info(
                         f"Best validation Loss: {self.best_loss:.6f}")
-                    self.config['patience'] = self.config['max_patience']
+                    self.config['patience'] = 0
                 elif self.config['patience'] != -1:  # if patience == -1, run forever
-                    self.config['patience'] = self.config['patience'] - 1
+                    self.config['patience'] = self.config['patience'] + 1
                     self.logger.info(f"Patience: {self.config['patience']}")
 
                 save_dict = {
@@ -303,7 +304,7 @@ class Supervisor(tune.Trainable):
                     torch.save(save_dict, self.config['best_path'])
                 torch.save(save_dict, self.config['checkpoint_path'])
 
-                if self.config['patience'] <= 0:
+                if self.config['patience'] == self.config['max_patience']:
                     self.logger.info("Early stopping")
                     break
                 self.epoch += 1
@@ -372,4 +373,5 @@ if __name__ == "__main__":
 
     device = torch.device("cuda:1" if torch.cuda.is_available() else 'cpu')
 
-    main()
+    with SeedContext(seed):
+        main()

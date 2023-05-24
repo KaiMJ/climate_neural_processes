@@ -1,16 +1,15 @@
-title: SFNP_train
+title: transfer
 
 data_dir: /data/kai/
 log_dir: logs
 
 batch_size: 1
 lr: 0.000227
-global_batch_idx: 0
-
 decay_rate: 0.9
 
+global_batch_idx: 0
 max_patience: 50
-patience: 50
+patience: 0
 best_loss: 0
 
 context_percentage_low: 0.2
@@ -28,3 +27,4 @@ model:
   dropout_rate: 0.01
 
 load_checkpoint: False
+transfer_learning: "logs/SFNP_low_seed0_lr0.000227_bs_1_Thu May 18 07:40:47 2023/best.pt"

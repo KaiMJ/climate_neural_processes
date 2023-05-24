@@ -129,9 +129,11 @@ class Supervisor(tune.Trainable):
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
+        if self.config["transfer_learning"]:
+            self.model.load_state_dict(torch.load(self.config["transfer_learning"])["model"])
 
-        self.optim = torch.optim.Adam(self.model.parameters(
-        ), lr=self.config['lr'], weight_decay=self.config['weight_decay'])
+        self.optim = torch.optim.Adam(
+            self.model.parameters(), lr=self.config['lr'])
         self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
             self.optim, gamma=self.config['decay_rate'])
         self.logger.info(
@@ -373,4 +375,5 @@ if __name__ == "__main__":
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else 'cpu')
 
-    main()
+    with SeedContext(seed):
+        main()
