@@ -17,10 +17,17 @@ class l2Dataset(Dataset):
 
         if self.variables is not None:
             y = y[:, :self.variables]
-        if self.x_scaler is not None:
-            x = self.x_scaler.transform(x)
-        if self.y_scaler is not None:
-            y = self.y_scaler.transform(y)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=RuntimeWarning)
+            if self.x_scaler is not None:
+                # x = self.x_scaler.transform(x)
+                x = x / self.x_scaler
+            if self.y_scaler is not None:
+                # y = self.y_scaler.transform(y)
+                y = y / self.y_scaler
+            x[np.isnan(x)] = 0
+            y[np.isnan(y)] = 0
+
         x = torch.from_numpy(x).float()
         y = torch.from_numpy(y).float()
         return x, y

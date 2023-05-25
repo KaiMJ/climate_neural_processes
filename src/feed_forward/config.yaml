@@ -1,4 +1,4 @@
-title: NN_transfer
+title: NN
 
 data_dir: /data/kai/
 log_dir: logs
@@ -24,4 +24,4 @@ model:
 
 
 load_checkpoint: false
-transfer_learning: logs/NN_low_seed0_lr0.000227_bs_1_Thu May 18 07:42:58 2023/best.pt
+transfer_learning: false

@@ -12,7 +12,6 @@ from torch.optim.lr_scheduler import StepLR, CyclicLR
 from torch.utils.data import DataLoader
 import torch
 from tqdm import tqdm
-from climate_neural_processes.scalers.utils import *
 from lib.loss import *
 from lib.dataset import *
 from lib.model import Model
@@ -102,27 +101,29 @@ class Supervisor(tune.Trainable):
         l2_x_valid = l2_x_data[split_n:365]
         l2_y_valid = l2_y_data[split_n:365]
 
-        x_scaler_minmax = dill.load(
-            open(f"{cwd}/../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
-        y_scaler_minmax = dill.load(
-            open(f"{cwd}/../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
+        x_scaler_minmax = np.load(f"{cwd}/../../scalers/metrics/dataset_2_x_max.npy")
+        self.y_scaler_minmax = np.load(f"{cwd}/../../scalers/metrics/dataset_2_y_max.npy")
+        # x_scaler_minmax = dill.load(
+            # open(f"{cwd}/../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
+        # y_scaler_minmax = dill.load(
+            # open(f"{cwd}/../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
 
-        # Change to first 26 variables
-        # Follow Azis's process. X -> X/(max(abs(X))
-        x_scaler_minmax.min = x_scaler_minmax.min * 0
-        x_scaler_minmax.max = np.abs(x_scaler_minmax.max)
-        y_scaler_minmax.min = y_scaler_minmax.min[:26] * 0
-        # Change to first 26 variables
-        y_scaler_minmax.max = np.abs(y_scaler_minmax.max[:26])
-        self.x_scaler_minmax = x_scaler_minmax
-        self.y_scaler_minmax = y_scaler_minmax
+        # # Change to first 26 variables
+        # # Follow Azis's process. X -> X/(max(abs(X))
+        # x_scaler_minmax.min = x_scaler_minmax.min * 0
+        # x_scaler_minmax.max = np.abs(x_scaler_minmax.max)
+        # y_scaler_minmax.min = y_scaler_minmax.min[:26] * 0
+        # # Change to first 26 variables
+        # y_scaler_minmax.max = np.abs(y_scaler_minmax.max[:26])
+        # self.x_scaler_minmax = x_scaler_minmax
+        # self.y_scaler_minmax = y_scaler_minmax
 
         train_dataset = l2Dataset(
-            l2_x_train, l2_y_train, x_scaler=x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
+            l2_x_train, l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
         self.train_loader = DataLoader(
             train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=2, pin_memory=True)
         val_dataset = l2Dataset(
-            l2_x_valid, l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=y_scaler_minmax, variables=26)
+            l2_x_valid, l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
         self.val_loader = DataLoader(
             val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
 
@@ -185,10 +186,8 @@ class Supervisor(tune.Trainable):
 
                 mae = mae_loss(l2_output_mu, y).detach()
                 norm_rmse = norm_rmse_loss(l2_output_mu, y).detach()
-                non_y_pred = self.y_scaler_minmax.inverse_transform(
-                    l2_output_mu.squeeze().detach().cpu().numpy())
-                non_y = self.y_scaler_minmax.inverse_transform(
-                    y.squeeze().detach().cpu().numpy())
+                non_y_pred = self.y_scaler_minmax * l2_output_mu.squeeze().detach().cpu().numpy()
+                non_y = self.y_scaler_minmax * y.squeeze().detach().cpu().numpy()
                 non_mae = mae_metric(non_y_pred, non_y)
 
                 r_score[r_score > 1.0] = 1.0
