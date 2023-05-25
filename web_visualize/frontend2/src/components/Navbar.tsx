@@ -1,5 +1,6 @@
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import { useRef } from "react";
 
 export default function Navbar({
   currentDate,
@@ -19,6 +20,15 @@ export default function Navbar({
 any) {
   const handleChange = (date: Date) => {
     setCurrentDate(date);
+  };
+  const timeoutId = useRef<number>();
+
+  const handleNext = () => {
+    const newDate = new Date(currentDate);
+    newDate.setDate(newDate.getDate() + 1);
+
+    setCurrentDate(newDate);
+    handleSubmit();
   };
 
   const selectStyle = "text-2xl text-black rounded-md bg-blue-200";
@@ -51,20 +61,12 @@ any) {
           </div>
           <div className="flex w-1/4 justify-evenly border-x-2">
             <h1 className="text-2xl">Level: </h1>
-            {/* input for 0~26 */}
             <input
-              className={selectStyle}
+              className={selectStyle + " w-16 text-center"}
               type="number"
-              min={0}
-              max={26}
               value={level}
               onChange={(e) => {
-                let value = parseInt(e.target.value);
-                if (value) {
-                  if (value < 0) value = 0;
-                  if (value > 26) value = 26;
-                  setLevel(value);
-                }
+                setLevel(e.target.value);
               }}
             />
           </div>
@@ -99,34 +101,22 @@ any) {
               <h1 className="mx-4 text-2xl font-bold">Hour:</h1>
               <input
                 className="w-16 text-center text-black text-2xl bg-blue-200 outline"
-                type="number"
-                min="0"
-                max="23"
+                type="text"
                 value={hour}
                 onChange={(e) => {
-                  let value = parseInt(e.target.value);
-                  if (value) {
-                    if (value < 0) value = 0;
-                    if (value > 23) value = 23;
-                    setHour(value);
-                  }
+                  setHour(e.target.value);
                 }}
               ></input>
             </div>
-            <div>
-              {/* <button
-                type="button"
-                className="p-2 bg-green-500 mr-10 rounded-md"
-              >
-                Play
-              </button>
-              <button type="button" className="p-2 bg-red-500 mr-10 rounded-md">
-                Stop
-              </button> */}
+            <div className="flex justify-evenly w-1/4 items-center">
               <button
-                type="submit"
-                className="p-2 bg-blue-500 mr-10 rounded-md"
+                type="button"
+                onClick={handleNext}
+                className="p-2 bg-green-500 rounded-md"
               >
+                Next
+              </button>
+              <button type="submit" className="p-2 bg-blue-500 rounded-md">
                 Confirm
               </button>
             </div>
