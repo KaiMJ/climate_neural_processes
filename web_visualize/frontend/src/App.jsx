@@ -4,11 +4,12 @@ import Dashboard from "./dashboard/Dashboard";
 function App() {
   return (
     <div className="flex">
-      <div className="w-1/6 border-2">
-        <ModelSettings />
-        <DataSettings />
+      {/* <h1>hello</h1> */}
+      {/* <ModelSettings /> */}
+      {/* <div className="w-1/6 border-2">
+      <DataSettings />
       </div>
-      <Dashboard />
+      <Dashboard /> */}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import MasterR2 from "/home/mkim/Nserver/climate_neural_processes/notebooks/plots/MASTER_R2.jpg";
+import MasterR2 from "/home/mkim/Nserver/climate_neural_processes/web_visualize/frontend/data/plots/MLP_R2_plot.png";
 import PopupTemplate from "./PopUpTemplate";
 
 const Metrics = () => {
