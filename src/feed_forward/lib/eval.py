@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 class Evaluator():
     def __init__(self, dirpath):
         self.dirpath = dirpath
@@ -46,7 +47,7 @@ class Evaluator():
 
         x_scaler_minmax = np.load(f"../../scalers/metrics/dataset_2_x_max.npy")
         self.y_scaler = np.load(f"../../scalers/metrics/dataset_2_y_max.npy")
-        
+
         train_dataset = l2Dataset(
             self.l2_x_train, self.l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
         self.train_loader = DataLoader(
@@ -55,7 +56,10 @@ class Evaluator():
             self.l2_x_valid, self.l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
         self.val_loader = DataLoader(
             val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
-
+        test_dataset = l2Dataset(
+            self.l2_x_test, self.l2_y_test, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
+        self.test_loader = DataLoader(
+            test_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
 
     def get_metrics(self, loader):
         self.get_R_stats(loader)
@@ -76,24 +80,28 @@ class Evaluator():
                 non_y_pred = self.y_scaler * l2_output_mu.squeeze().cpu().numpy()
                 non_y = self.y_scaler * y.squeeze().cpu().numpy()
             else:
-                non_y_pred = self.y_scaler.inverse_transform(l2_output_mu.squeeze().cpu().numpy())
-                non_y = self.y_scaler.inverse_transform(y.squeeze().cpu().numpy())
+                non_y_pred = self.y_scaler.inverse_transform(
+                    l2_output_mu.squeeze().cpu().numpy())
+                non_y = self.y_scaler.inverse_transform(
+                    y.squeeze().cpu().numpy())
             return non_y, non_y_pred
-        
+
     def get_loss(self, type="non_mae"):
         step_size = len(self.trainloader)
-        train_event_file = sorted(glob.glob(os.path.join(self.dirpath, "runs/train/events.out.tfevents*")), key=os.path.getctime)[-1]
-        valid_event_file = sorted(glob.glob(os.path.join(self.dirpath, "runs/valid/events.out.tfevents*")), key=os.path.getctime)[-1]
+        train_event_file = sorted(glob.glob(os.path.join(
+            self.dirpath, "runs/train/events.out.tfevents*")), key=os.path.getctime)[-1]
+        valid_event_file = sorted(glob.glob(os.path.join(
+            self.dirpath, "runs/valid/events.out.tfevents*")), key=os.path.getctime)[-1]
         train_acc = EventAccumulator(train_event_file)
         valid_acc = EventAccumulator(valid_event_file)
         train_acc.Reload()
         valid_acc.Reload()
 
-        valid_values = [ s.value for s in valid_acc.Scalars(type)]
+        valid_values = [s.value for s in valid_acc.Scalars(type)]
         n_epochs = len(valid_values)
 
         # Change each iteration to epochs
-        train_values = np.array([ s.value for s in train_acc.Scalars(type)])
+        train_values = np.array([s.value for s in train_acc.Scalars(type)])
         max_n = min(len(train_values) // step_size, n_epochs)
         train_values = train_values[:max_n * step_size]
         valid_values = valid_values[:max_n]
@@ -166,7 +174,8 @@ class Evaluator():
             loader = self.trainloader
 
         for i, data in enumerate(loader):
-            if i < day: continue
+            if i < day:
+                continue
             x, y = data
 
             with torch.no_grad():
@@ -174,7 +183,9 @@ class Evaluator():
                 y = y.reshape(24, -1, 1, y.shape[-1])[hour].to(device)
                 with torch.cuda.amp.autocast():
                     l2_output_mu = self.model(x)
-                non_y_pred = self.l2_y_scaler.inverse_transform(l2_output_mu.squeeze().cpu().numpy())
-                non_y = self.l2_y_scaler.inverse_transform(y.squeeze().cpu().numpy())
+                non_y_pred = self.l2_y_scaler.inverse_transform(
+                    l2_output_mu.squeeze().cpu().numpy())
+                non_y = self.l2_y_scaler.inverse_transform(
+                    y.squeeze().cpu().numpy())
 
             return non_y, non_y_pred
