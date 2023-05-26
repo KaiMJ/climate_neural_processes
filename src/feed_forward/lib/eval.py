@@ -45,8 +45,8 @@ class Evaluator():
         self.l2_x_test = l2_x_data[365:]
         self.l2_y_test = l2_y_data[365:]
 
-        x_scaler_minmax = np.load(f"../../scalers/metrics/dataset_2_x_max.npy")
-        self.y_scaler = np.load(f"../../scalers/metrics/dataset_2_y_max.npy")
+        x_scaler_minmax = np.load(f"../../notebooks/scalers/dataset_2_x_max.npy")
+        self.y_scaler = np.load(f"../../notebooks/scalers/dataset_2_y_max.npy")
 
         train_dataset = l2Dataset(
             self.l2_x_train, self.l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
@@ -54,7 +54,7 @@ class Evaluator():
             train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=2, pin_memory=True)
         val_dataset = l2Dataset(
             self.l2_x_valid, self.l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
-        self.val_loader = DataLoader(
+        self.valid_loader = DataLoader(
             val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
         test_dataset = l2Dataset(
             self.l2_x_test, self.l2_y_test, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
@@ -87,7 +87,7 @@ class Evaluator():
             return non_y, non_y_pred
 
     def get_loss(self, type="non_mae"):
-        step_size = len(self.trainloader)
+        step_size = len(self.train_loader)
         train_event_file = sorted(glob.glob(os.path.join(
             self.dirpath, "runs/train/events.out.tfevents*")), key=os.path.getctime)[-1]
         valid_event_file = sorted(glob.glob(os.path.join(
@@ -167,11 +167,11 @@ class Evaluator():
             Plots xth day of the scenario.
         """
         if split == "test":
-            loader = self.testloader
+            loader = self.test_loader
         elif split == "valid":
-            loader = self.validloader
+            loader = self.valid_loader
         else:
-            loader = self.trainloader
+            loader = self.train_loader
 
         for i, data in enumerate(loader):
             if i < day:
