@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from "react";
 
-export default function Dashboard({ data }: any) {
+export default function Dashboard({ data, level }: any) {
   const [allImages, setAllImages] = useState<string[]>([]);
 
   useEffect(() => {
-    if (data["image"]) {
-      setAllImages([data["image"]]);
-    } else {
+    if (data["images"]) {
       setAllImages(data["images"]);
     }
   }, [data]);
@@ -16,7 +14,7 @@ export default function Dashboard({ data }: any) {
       {allImages.map((image, i: number) => {
         return (
           <div key={i} className="w-1/4">
-            <h1 className="">Level : {i}</h1>
+            <h1 className="text-center w-full">Level : {level}</h1>
             <img
               className=""
               src={`data:image/png;base64,${image}`}

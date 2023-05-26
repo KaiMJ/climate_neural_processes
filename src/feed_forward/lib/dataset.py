@@ -20,11 +20,15 @@ class l2Dataset(Dataset):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=RuntimeWarning)
             if self.x_scaler is not None:
-                # x = self.x_scaler.transform(x)
-                x = x / self.x_scaler
+                if type(self.x_scaler) == np.ndarray:
+                    x = x / self.x_scaler
+                else:
+                    x = self.x_scaler.transform(x)
             if self.y_scaler is not None:
-                # y = self.y_scaler.transform(y)
-                y = y / self.y_scaler
+                if type(self.y_scaler) == np.ndarray:
+                    y = y / self.y_scaler
+                else:
+                    y = self.y_scaler.transform(y)
             x[np.isnan(x)] = 0
             y[np.isnan(y)] = 0
 

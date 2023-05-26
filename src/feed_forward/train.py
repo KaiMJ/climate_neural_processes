@@ -15,6 +15,7 @@ from tqdm import tqdm
 from lib.loss import *
 from lib.dataset import *
 from lib.model import Model
+from lib.utils import *
 from scipy.stats import linregress
 
 cwd = os.getcwd()
@@ -156,7 +157,6 @@ class Supervisor(tune.Trainable):
         mae_total = 0
         non_mae_total = 0
         norm_rmse_total = 0
-        non_norm_rmse_total = 0
         r2_total = 0
 
         if not eval:

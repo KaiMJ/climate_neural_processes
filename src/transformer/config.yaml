@@ -1,4 +1,4 @@
-title: transfer
+title: train_new
 data_dir: /data/kai
 log_dir: logs
 
@@ -20,7 +20,7 @@ model:
   num_heads: 4
   attention_layers: 7
   n_embd: 256
-  dropout: 0.01
+  dropout: 0.2
   
 load_checkpoint: false
-transfer_learning: logs/low_seed0_lr2.5e-05_bs_1_Thu May 18 07:56:21 2023/best.pt
+transfer_learning: false

@@ -41,6 +41,8 @@ function App() {
   const [scaler, setScaler] = useState("max"); // ["max", "minmax", "standard"
 
   const [data, setData] = useState<string>(""); // [0, 26
+  const [model, setModel] = useState("DNN");
+
   const [isLoading, setIsLoading] = useState(false); // [0, 26
 
   const handleSubmit = async (e: any) => {
@@ -70,10 +72,14 @@ function App() {
     }
   };
 
+
   return (
     <>
       <div className="flex bg-gray-900 text-white">
-        <Sidebar />
+        <Sidebar
+          model={model}
+          setModel={setModel}
+        />
         <div className="flex flex-col w-full h-screen">
           <Navbar
             currentDate={currentDate}
@@ -91,7 +97,7 @@ function App() {
             handleSubmit={handleSubmit}
           />
           <div className="overflow-y-auto">
-            {data && <Dashboard data={data} />}
+            {data && <Dashboard data={data} level={level}/>}
             {data != "" && isLoading && <h1>Loading...</h1>}
           </div>
         </div>

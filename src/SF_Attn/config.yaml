@@ -1,18 +1,25 @@
-title: SFANP_train
+title: Low
 
 data_dir: /data/kai
 log_dir: logs
 
 batch_size: 1
-batch_dropout: 0.5
-lr: 0.000227
-decay_rate: 0.9
-
+lr: 0.000139
 global_batch_idx: 0
-max_patience: 50
+batch_dropout: 0.5
+variables: 26
+
+base_lr: 0.0001
+max_lr: 0.01
+optim: adam
+weight_decay: 0.06818202991034834
+decay_steps: 5
+decay_rate: 0.9
+gamma: 1
+
+max_patience: 20
 patience: 0
 best_loss: 0
-
 context_percentage_low: 0.2
 context_percentage_high: 0.5
 
@@ -21,10 +28,10 @@ model:
   l2_output_dim: 26
 
   num_heads: 16
-  attention_layers: 7
-  hidden_dim: 192
+  dropout_rate: 0.1748127815197366
+  attention_layers: 12
+  hidden_dim: 160
   hidden_layers: 3
   leaky_relu_slope: 0.15
-  dropout_rate: 0.01
 
 load_checkpoint: false

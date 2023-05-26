@@ -1,23 +1,38 @@
+import io
+import base64
+from PIL import Image
+import matplotlib.pyplot as plt
 from flask import Flask
 from flask import request, jsonify
 import numpy as np
 from lib import *
 import dill
 import time
+import json
 import matplotlib
 matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import base64, io
-from PIL import Image
 
 app = Flask(__name__)
 
-DATA_DIR = "../../data/SPCAM5/"
+DATA_DIR = "/data/kai/SPCAM5/"
 SCALER_DIR = "../../scalers/metrics/"
+
+
+@app.post("/api/model")
+def get_model():
+    data = request.get_json()
+    parameters = json.load(open("public/parameters.json"))
+
+    return parameters[data["model"]]
 
 
 @app.post("/api/data")
 def get_image():
+    # Return images for each level
+    # Original, Model output (inverse transformed),
+        # Original violin plot, Model output violin plot
+        # and ordered lineplot 
+
     start = time.time()
     data = request.get_json()
     print(data)
@@ -30,6 +45,22 @@ def get_image():
 
     y_path = DATA_DIR + "inputs_%s.npy" % (date)
     y = np.load(y_path, mmap_mode="r").reshape(24, 96, 144, -1)[:, ::-1]
+
+    og_y = y.copy()
+
+    images = get_original_images(y, dataset, scaler, level, hour)
+
+
+    print("Total time:", time.time() - start)
+    return jsonify({"images": images})
+
+# def get_loss_images(y, dataset, scaler, level, hour):
+
+
+
+
+def get_original_images(y, dataset, scaler, level, hour):
+    results = []
 
     if scaler == "min":
         y_scaler_max = np.load(SCALER_DIR + f"dataset_{dataset+1}_max.npy")
@@ -60,12 +91,9 @@ def get_image():
             img_str = base64.b64encode(buffer.getvalue()).decode()
             results.append(img_str)
 
-        print("Total time:", time.time() - start)
-        return jsonify({"images": results})
+        return results
     else:
         y = y[hour, :, :, level]
-
-    print(y.shape)
 
     plt.imshow(y, cmap="magma")
     plt.colorbar()
@@ -78,9 +106,7 @@ def get_image():
     buffer.seek(0)
     img_str = base64.b64encode(buffer.getvalue()).decode()
 
-    print("Total time:", time.time() - start)
-    return jsonify({"image": img_str})
-
+    return [img_str]
 
 if __name__ == "__main__":
 

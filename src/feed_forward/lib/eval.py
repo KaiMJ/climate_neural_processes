@@ -1,4 +1,4 @@
-from ....scalers.utils import *
+from .utils import *
 from .dataset import l2Dataset
 from .model import Model
 from .loss import *
@@ -44,29 +44,18 @@ class Evaluator():
         self.l2_x_test = l2_x_data[365:]
         self.l2_y_test = l2_y_data[365:]
 
-        l2_x_scaler_minmax = dill.load(
-            open(f"../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
-        l2_y_scaler_minmax = dill.load(
-            open(f"../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
+        x_scaler_minmax = np.load(f"../../scalers/metrics/dataset_2_x_max.npy")
+        self.y_scaler = np.load(f"../../scalers/metrics/dataset_2_y_max.npy")
+        
+        train_dataset = l2Dataset(
+            self.l2_x_train, self.l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
+        self.train_loader = DataLoader(
+            train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=2, pin_memory=True)
+        val_dataset = l2Dataset(
+            self.l2_x_valid, self.l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
+        self.val_loader = DataLoader(
+            val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
 
-        # Change to first 26 variables
-        l2_y_scaler_minmax.min = l2_y_scaler_minmax.min[:26]
-        l2_y_scaler_minmax.max = l2_y_scaler_minmax.max[:26]
-
-        trainset = l2Dataset(self.l2_x_train, self.l2_y_train,
-                             x_scaler=l2_x_scaler_minmax, y_scaler=l2_y_scaler_minmax, variables=26)
-        self.trainloader = DataLoader(trainset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False,
-                                      num_workers=4, pin_memory=True)
-        validset = l2Dataset(self.l2_x_valid, self.l2_y_valid,
-                             x_scaler=l2_x_scaler_minmax, y_scaler=l2_y_scaler_minmax, variables=26)
-        self.validloader = DataLoader(validset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False,
-                                      num_workers=4, pin_memory=True)
-        testset = l2Dataset(self.l2_x_test, self.l2_y_test,
-                            x_scaler=l2_x_scaler_minmax, y_scaler=l2_y_scaler_minmax, variables=26)
-        self.testloader = DataLoader(testset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False,
-                                     num_workers=4, pin_memory=True)
-
-        self.l2_y_scaler_minmax = l2_y_scaler_minmax
 
     def get_metrics(self, loader):
         self.get_R_stats(loader)
@@ -83,11 +72,15 @@ class Evaluator():
             with torch.cuda.amp.autocast():
                 l2_output_mu = self.model(x)
 
-            non_y_pred = self.l2_y_scaler_minmax.inverse_transform(l2_output_mu.squeeze().cpu().numpy())
-            non_y = self.l2_y_scaler_minmax.inverse_transform(y.squeeze().cpu().numpy())
+            if type(self.y_scaler) == np.ndarray:
+                non_y_pred = self.y_scaler * l2_output_mu.squeeze().cpu().numpy()
+                non_y = self.y_scaler * y.squeeze().cpu().numpy()
+            else:
+                non_y_pred = self.y_scaler.inverse_transform(l2_output_mu.squeeze().cpu().numpy())
+                non_y = self.y_scaler.inverse_transform(y.squeeze().cpu().numpy())
             return non_y, non_y_pred
         
-    def get_loss(self):
+    def get_loss(self, type="non_mae"):
         step_size = len(self.trainloader)
         train_event_file = sorted(glob.glob(os.path.join(self.dirpath, "runs/train/events.out.tfevents*")), key=os.path.getctime)[-1]
         valid_event_file = sorted(glob.glob(os.path.join(self.dirpath, "runs/valid/events.out.tfevents*")), key=os.path.getctime)[-1]
@@ -96,11 +89,11 @@ class Evaluator():
         train_acc.Reload()
         valid_acc.Reload()
 
-        valid_values = [ s.value for s in valid_acc.Scalars("non_mae")]
+        valid_values = [ s.value for s in valid_acc.Scalars(type)]
         n_epochs = len(valid_values)
 
         # Change each iteration to epochs
-        train_values = np.array([ s.value for s in train_acc.Scalars("non_mae")])
+        train_values = np.array([ s.value for s in train_acc.Scalars(type)])
         max_n = min(len(train_values) // step_size, n_epochs)
         train_values = train_values[:max_n * step_size]
         valid_values = valid_values[:max_n]
@@ -181,7 +174,7 @@ class Evaluator():
                 y = y.reshape(24, -1, 1, y.shape[-1])[hour].to(device)
                 with torch.cuda.amp.autocast():
                     l2_output_mu = self.model(x)
-                non_y_pred = self.l2_y_scaler_minmax.inverse_transform(l2_output_mu.squeeze().cpu().numpy())
-                non_y = self.l2_y_scaler_minmax.inverse_transform(y.squeeze().cpu().numpy())
+                non_y_pred = self.l2_y_scaler.inverse_transform(l2_output_mu.squeeze().cpu().numpy())
+                non_y = self.l2_y_scaler.inverse_transform(y.squeeze().cpu().numpy())
 
             return non_y, non_y_pred
