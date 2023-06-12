@@ -93,9 +93,9 @@ class Supervisor():
         # Train and validation data split
         # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004
         l2_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
         l2_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
 
         split_n = int(365*0.8)
         l2_x_train = l2_x_data[:split_n]
@@ -103,8 +103,8 @@ class Supervisor():
         l2_x_valid = l2_x_data[split_n:365]
         l2_y_valid = l2_y_data[split_n:365]
 
-        x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/dataset_2_x_max.npy")
-        self.y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/dataset_2_y_max.npy")
+        x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_x_max.npy")
+        self.y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_y_max.npy")
 
         train_dataset = l2Dataset(
             l2_x_train, l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
