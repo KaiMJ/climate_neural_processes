@@ -103,17 +103,13 @@ class Supervisor(tune.Trainable):
         l2_x_valid = l2_x_data[split_n:n]
         l2_y_valid = l2_y_data[split_n:n]
 
-        x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_x_max.npy")
-        self.y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_y_max.npy")
+        x_scaler_minmax = np.load(f"../../notebooks/scalers/dataset_2_x_max.npy")
+        self.y_scaler_minmax = np.load(f"../../notebooks/scalers/dataset_2_y_max.npy")
 
-        train_dataset = l2Dataset(
-            l2_x_train, l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
-        self.train_loader = DataLoader(
-            train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=2, pin_memory=True)
-        val_dataset = l2Dataset(
-            l2_x_valid, l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
-        self.val_loader = DataLoader(
-            val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
+        train_dataset = l2Dataset(l2_x_train, l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
+        self.train_loader = DataLoader(train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=2, pin_memory=True)
+        val_dataset = l2Dataset(l2_x_valid, l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
+        self.valid_loader = DataLoader(val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
@@ -395,6 +391,7 @@ if __name__ == "__main__":
     device = torch.device("cuda:1" if torch.cuda.is_available() else 'cpu')
 
     # CUDA_VISIBLE_DEVICES=1,2,3,5 python train.py
+
 
     with SeedContext(seed):
         main()
