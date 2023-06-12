@@ -92,9 +92,9 @@ class Supervisor(tune.Trainable):
         # Train and validation data split
         # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004
         l2_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
         l2_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
 
         n = 365
         split_n = int(n*0.8)
@@ -103,23 +103,8 @@ class Supervisor(tune.Trainable):
         l2_x_valid = l2_x_data[split_n:n]
         l2_y_valid = l2_y_data[split_n:n]
 
-        x_scaler_minmax = np.load(f"{cwd}/../../scalers/metrics/dataset_2_x_max.npy")
-        self.y_scaler_minmax = np.load(f"{cwd}/../../scalers/metrics/dataset_2_y_max.npy")
-
-        # x_scaler_minmax = dill.load(
-        #     open(f"{cwd}/../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
-        # y_scaler_minmax = dill.load(
-        #     open(f"{cwd}/../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
-
-
-        # # Change to first 26 variables
-        # # Follow Azis's process. X -> X/(max(abs(X))
-        # x_scaler_minmax.min = x_scaler_minmax.min * 0
-        # x_scaler_minmax.max = np.abs(x_scaler_minmax.max)
-        # y_scaler_minmax.min = y_scaler_minmax.min[:26] * 0
-        # y_scaler_minmax.max = np.abs(y_scaler_minmax.max[:26])
-        # self.x_scaler_minmax = x_scaler_minmax
-        # self.y_scaler_minmax = y_scaler_minmax
+        x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_x_max.npy")
+        self.y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_y_max.npy")
 
         train_dataset = l2Dataset(
             l2_x_train, l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
@@ -132,7 +117,8 @@ class Supervisor(tune.Trainable):
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
-
+        # self.model.load_state_dict(torch.load(f""))
+        
         self.optim = torch.optim.Adam(
             self.model.parameters(), lr=self.config['lr'])
         self.scheduler = torch.optim.lr_scheduler.ExponentialLR(

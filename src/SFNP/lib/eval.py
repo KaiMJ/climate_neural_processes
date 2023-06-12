@@ -45,29 +45,22 @@ class Evaluator():
         self.l2_x_test = l2_x_data[365:]
         self.l2_y_test = l2_y_data[365:]
 
-        l2_x_scaler_minmax = dill.load(
-            open(f"../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
-        l2_y_scaler_minmax = dill.load(
-            open(f"../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
+        x_scaler_minmax = np.load(f"../../notebooks/scalers/dataset_2_x_max.npy")
+        self.y_scaler = np.load(f"../../notebooks/scalers/dataset_2_y_max.npy")
 
-        # Change to first 26 variables
-        l2_y_scaler_minmax.min = l2_y_scaler_minmax.min[:26]
-        l2_y_scaler_minmax.max = l2_y_scaler_minmax.max[:26]
+        train_dataset = l2Dataset(
+            self.l2_x_train, self.l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
+        self.train_loader = DataLoader(
+            train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=2, pin_memory=True)
+        val_dataset = l2Dataset(
+            self.l2_x_valid, self.l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
+        self.valid_loader = DataLoader(
+            val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
+        test_dataset = l2Dataset(
+            self.l2_x_test, self.l2_y_test, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
+        self.test_loader = DataLoader(
+            test_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
 
-        trainset = l2Dataset(self.l2_x_train, self.l2_y_train,
-                             x_scaler=l2_x_scaler_minmax, y_scaler=l2_y_scaler_minmax, variables=26)
-        self.trainloader = DataLoader(trainset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False,
-                                      num_workers=2, pin_memory=True)
-        validset = l2Dataset(self.l2_x_valid, self.l2_y_valid,
-                             x_scaler=l2_x_scaler_minmax, y_scaler=l2_y_scaler_minmax, variables=26)
-        self.validloader = DataLoader(validset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False,
-                                      num_workers=2, pin_memory=True)
-        testset = l2Dataset(self.l2_x_test, self.l2_y_test,
-                            x_scaler=l2_x_scaler_minmax, y_scaler=l2_y_scaler_minmax, variables=26)
-        self.testloader = DataLoader(testset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False,
-                                     num_workers=2, pin_memory=True)
-
-        self.l2_y_scaler_minmax = l2_y_scaler_minmax
 
     def get_metrics(self, loader):
         self.get_R_stats(loader)
@@ -75,7 +68,6 @@ class Evaluator():
         return self.non_mae, self.nmae, self.r
 
     def forward_pass(self, data):
-        print('forward pass')
         with torch.no_grad():
             x, y = data
 
@@ -93,14 +85,18 @@ class Evaluator():
                 l2_output_mu, l2_output_cov, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(
                     x_context, y_context, x_target, x_all=x, y_all=y)
 
-            non_y_pred = self.l2_y_scaler_minmax.inverse_transform(
-                l2_output_mu.squeeze().cpu().numpy())
-            non_y = self.l2_y_scaler_minmax.inverse_transform(
-                y_target.squeeze().cpu().numpy())
+            if type(self.y_scaler) == np.ndarray:
+                non_y_pred = self.y_scaler * l2_output_mu.squeeze().cpu().numpy()
+                non_y = self.y_scaler * y_target.squeeze().cpu().numpy()
+            else:
+                non_y_pred = self.y_scaler.inverse_transform(
+                    l2_output_mu.squeeze().cpu().numpy())
+                non_y = self.y_scaler.inverse_transform(
+                    y_target.squeeze().cpu().numpy())
             return non_y, non_y_pred, context_idxs, target_idxs
 
     def get_loss(self):
-        step_size = len(self.trainloader)
+        step_size = len(self.train_loader)
         train_event_file = sorted(glob.glob(os.path.join(
             self.dirpath, "runs/train/events.out.tfevents*")), key=os.path.getctime)[-1]
         valid_event_file = sorted(glob.glob(os.path.join(
@@ -175,43 +171,3 @@ class Evaluator():
         self.y_pred_mean /= self.n_total
         self.non_mae /= self.n_total
         self.nmae = self.non_mae / self.y_max
-
-    def plot_scenario(self, day, hour=0, split="test"):
-        """
-            Plots xth day of the scenario.
-        """
-        if split == "test":
-            loader = self.testloader
-        elif split == "valid":
-            loader = self.validloader
-        else:
-            loader = self.trainloader
-
-        for i, data in enumerate(loader):
-            if i < day:
-                continue
-            x, y = data
-
-            with torch.no_grad():
-                x = x.reshape(24, -1, 1, x.shape[-1])[hour].to(device)
-                y = y.reshape(24, -1, 1, y.shape[-1])[hour].to(device)
-                context_idxs, target_idxs = split_context_target(x, self.config['context_percentage_low'],
-                                                                 self.config['context_percentage_high'])
-
-                x_context = x[context_idxs]
-                y_context = y[context_idxs]
-                # x_target = x[target_idxs]
-                # y_target = y[target_idxs]
-
-                with torch.cuda.amp.autocast():
-                    l2_output_mu, l2_output_cov = self.model(
-                        x_context, y_context, x)
-
-                non_y_pred = self.l2_y_scaler_minmax.inverse_transform(
-                    l2_output_mu.squeeze().cpu().numpy())
-                non_y = self.l2_y_scaler_minmax.inverse_transform(
-                    y.squeeze().cpu().numpy())
-
-            return non_y, non_y_pred, context_idxs, target_idxs
-
-        # return self.losses

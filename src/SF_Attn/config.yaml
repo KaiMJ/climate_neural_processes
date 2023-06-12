@@ -4,7 +4,7 @@ data_dir: /data/kai
 log_dir: logs
 
 batch_size: 1
-lr: 0.000139
+lr: 0.0000139
 global_batch_idx: 0
 batch_dropout: 0.5
 variables: 26

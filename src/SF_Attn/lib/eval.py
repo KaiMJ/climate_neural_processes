@@ -23,8 +23,7 @@ class Evaluator():
 
     def init_model(self):
         self.device = torch.device('cuda')
-        model_dict = torch.load(
-            f"{self.dirpath}/best.pt", map_location=torch.device('cuda'))
+        model_dict = torch.load(f"{self.dirpath}/best.pt", map_location=torch.device('cuda'))
         model = Model(model_dict['config']['model']).to(self.device)
 
         model.load_state_dict(model_dict['model'])
