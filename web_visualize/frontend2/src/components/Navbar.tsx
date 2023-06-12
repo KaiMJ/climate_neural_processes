@@ -47,7 +47,7 @@ any) {
               <option value="1">1 Year</option>
             </select>
           </div>
-          <div className="flex w-1/4 justify-evenly border-x-2">
+          {/* <div className="flex w-1/4 justify-evenly border-x-2">
             <h1 className="text-2xl">Split: </h1>
             <select
               value={split}
@@ -58,7 +58,7 @@ any) {
               <option value="valid">Valid</option>
               <option value="test">Test</option>
             </select>
-          </div>
+          </div> */}
           <div className="flex w-1/4 justify-evenly border-x-2">
             <h1 className="text-2xl">Level: </h1>
             <input
@@ -70,7 +70,7 @@ any) {
               }}
             />
           </div>
-          <div className="flex w-1/4 justify-evenly border-l-2">
+          {/* <div className="flex w-1/4 justify-evenly border-l-2">
             <h1 className="text-2xl">Scaler: </h1>
             <select
               value={scaler}
@@ -81,13 +81,13 @@ any) {
               <option value="minmax">MinMax</option>
               <option value="standard">Standard</option>
             </select>
-          </div>
+          </div> */}
         </div>
         <div className="h-16 flex items-center border-b-2">
           <h1 className="w-72 text-2xl font-bold ml-10 text-gray-300 border-r-4">
             Current Timestep:
           </h1>
-          <div className="flex justify-between w-full items-center ">
+          <div className="flex w-full items-center">
             <div className="flex">
               <h1 className="mx-4 text-2xl font-bold">Date:</h1>
 
@@ -108,15 +108,15 @@ any) {
                 }}
               ></input>
             </div>
-            <div className="flex justify-evenly w-1/4 items-center">
+            <div className="ml-96">
               <button
                 type="button"
                 onClick={handleNext}
-                className="p-2 bg-green-500 rounded-md"
+                className="p-4 mx-4 bg-green-500 rounded-md"
               >
                 Next
               </button>
-              <button type="submit" className="p-2 bg-blue-500 rounded-md">
+              <button type="submit" className="p-4 bg-blue-500 rounded-md">
                 Confirm
               </button>
             </div>

@@ -162,6 +162,7 @@ class Model(nn.Module):
         # (B, 96*144, 132)
         self.embedding = nn.Linear(input_dim, n_embd, bias=False)
         self.dropout = nn.Dropout(dropout)
+        self.positional_embedding = nn.Linear(4, n_embd)
         self.heads = nn.ModuleList([Block(config) for _ in range(n_layers)])
         self.layer_norm = nn.LayerNorm(n_embd)
         self.proj = nn.Linear(n_embd, output_dim)

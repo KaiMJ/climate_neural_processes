@@ -50,14 +50,65 @@ def get_image():
 
     images = get_original_images(y, dataset, scaler, level, hour)
 
-
     print("Total time:", time.time() - start)
     return jsonify({"images": images})
 
+@app.post("/api/metrics")
+def get_metrics():
+    data = request.get_json()
+    model = data["model"]
+    if model != "DNN": 
+        return jsonify({})
+
+    metrics_path = "/data/kai/climate_neural_processes/notebooks/metrics/"
+    plot_path = "/data/kai/climate_neural_processes/notebooks/plots/metrics/"
+    print(model)
+
+    # train_loss = np.load(metrics_path + f"{model}_train_loss.npy")
+    # valid_loss = np.load(metrics_path + f"{model}_valid_loss.npy")
+    # test_loss = np.load(metrics_path + f"{model}_test_loss.npy")
+    train_non_mae = np.load(metrics_path + f"{model}_train_MAE.npy")
+    valid_non_mae = np.load(metrics_path + f"{model}_valid_MAE.npy")
+    # test_non_mae = np.load(metrics_path + f"{model}_test_MAE.npy")
+    train_nmae = np.load(metrics_path + f"{model}_train_NMAE.npy")
+    valid_nmae = np.load(metrics_path + f"{model}_valid_NMAE.npy")
+    # test_nmae = np.load(metrics_path + f"{model}_test_NMAE.npy")
+    train_R2 = np.load(metrics_path + f"{model}_train_R2.npy")
+    valid_R2 = np.load(metrics_path + f"{model}_valid_R2.npy")
+    # test_R2 = np.load(metrics_path + f"{model}_test_R2.npy")
+    # train_loss = np.load(metrics_path + f"{model}_train_loss.npy")
+    
+    n = np.arange(26)
+    plt.bar(n, train_non_mae, alpha=0.5, label="train")
+    plt.bar(n, valid_non_mae, alpha=0.5, label="valid")
+    # plt.bar(n, test_non_mae, alpha=0.5, label="test")
+    plt.legend()
+    plt.savefig(plot_path+f"{model}_MAE_plot.jpg")
+    plt.close()
+
+    plt.bar(n, train_nmae, alpha=0.5, label="train")
+    plt.bar(n, valid_nmae, alpha=0.5, label="valid")
+    # plt.bar(n, test_nmae, alpha=0.5, label="test")
+    plt.legend()
+    plt.savefig(plot_path+f"{model}_NMAE_plot.jpg")
+    plt.close()
+
+    plt.bar(n, train_R2, alpha=0.5, label="train")
+    plt.bar(n, valid_R2, alpha=0.5, label="valid")
+    # plt.bar(n, test_R2, alpha=0.5, label="test")
+    plt.legend()
+    plt.savefig(plot_path+f"{model}_R2_plot.jpg")
+    plt.close()
+
+    mae_plot = convert_img_to_string(plot_path+f"{model}_MAE_plot.jpg")
+    nmae_plot = convert_img_to_string(plot_path+f"{model}_NMAE_plot.jpg")
+    r2_plot = convert_img_to_string(plot_path+f"{model}_R2_plot.jpg")
+
+    return jsonify({"mae" : mae_plot, 
+                    "nmae" : nmae_plot,
+                    "r2" : r2_plot})
+
 # def get_loss_images(y, dataset, scaler, level, hour):
-
-
-
 
 def get_original_images(y, dataset, scaler, level, hour):
     results = []
@@ -83,14 +134,8 @@ def get_original_images(y, dataset, scaler, level, hour):
             plt.colorbar()
             plt.savefig("public/heatmap.jpg")
             plt.close()
-
-            image = Image.open("public/heatmap.jpg")
-            buffer = io.BytesIO()
-            image.save(buffer, format="JPEG")
-            buffer.seek(0)
-            img_str = base64.b64encode(buffer.getvalue()).decode()
+            img_str = convert_img_to_string("public/heatmap.jpg")
             results.append(img_str)
-
         return results
     else:
         y = y[hour, :, :, level]
@@ -99,14 +144,17 @@ def get_original_images(y, dataset, scaler, level, hour):
     plt.colorbar()
     plt.savefig("public/heatmap.jpg")
     plt.close()
+    img_str = convert_img_to_string("public/heatmap.jpg")
+    return [img_str]
 
-    image = Image.open("public/heatmap.jpg")
+def convert_img_to_string(path):
+    image = Image.open(path)
     buffer = io.BytesIO()
     image.save(buffer, format="JPEG")
     buffer.seek(0)
     img_str = base64.b64encode(buffer.getvalue()).decode()
 
-    return [img_str]
+    return img_str
 
 if __name__ == "__main__":
 

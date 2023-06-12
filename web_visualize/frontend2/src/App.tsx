@@ -3,8 +3,9 @@ import Sidebar from "./components/Sidebar";
 import Navbar from "./components/Navbar";
 import Dashboard from "./components/Dashboard";
 import axios from "axios";
+import React from "react";
 
-function App() {
+export default function App() {
   axios.interceptors.request.use(
     function (config) {
       // When the request starts, change the cursor to the spinning cursor
@@ -34,14 +35,16 @@ function App() {
   const [currentDate, setCurrentDate] = useState(
     new Date("2003-04-01T00:00:00")
   );
-  const [dataset, setDataset] = useState(0); // [0 - 6 months, 1 - 1 year]
+  const [dataset, setDataset] = useState(1); // [0 - 6 months, 1 - 1 year]
   const [hour, setHour] = useState("0"); // [0, 23]
   const [level, setLevel] = useState("0"); // [0, 26]
   const [split, setSplit] = useState("train"); // ["train", "valid", "test"
   const [scaler, setScaler] = useState("max"); // ["max", "minmax", "standard"
 
   const [data, setData] = useState<string>(""); // [0, 26
-  const [model, setModel] = useState("DNN");
+  const [model, setModel] = useState("");
+
+  const [metricsImages, setMetricsImages] = useState<object>({}); // [0, 26
 
   const [isLoading, setIsLoading] = useState(false); // [0, 26
 
@@ -55,7 +58,7 @@ function App() {
     });
     setIsLoading(true);
     try {
-      const response = await axios.post("/api/data", {
+      const response_images = await axios.post("/api/data", {
         dataset: dataset,
         date: formattedDate,
         hour: hour,
@@ -65,20 +68,20 @@ function App() {
       });
       setIsLoading(false);
 
-      setData(response.data);
+      setData(response_images.data);
       return;
     } catch (error) {
       return error;
     }
   };
 
-
   return (
-    <>
+    <div>
       <div className="flex bg-gray-900 text-white">
         <Sidebar
           model={model}
           setModel={setModel}
+          setMetricsImages={setMetricsImages}
         />
         <div className="flex flex-col w-full h-screen">
           <Navbar
@@ -97,13 +100,11 @@ function App() {
             handleSubmit={handleSubmit}
           />
           <div className="overflow-y-auto">
-            {data && <Dashboard data={data} level={level}/>}
+            <Dashboard data={data} level={level} metricsImages={metricsImages} />
             {data != "" && isLoading && <h1>Loading...</h1>}
           </div>
         </div>
       </div>
-    </>
-  );
+    </div>
+  )
 }
-
-export default App;

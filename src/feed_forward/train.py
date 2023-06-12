@@ -16,7 +16,6 @@ from lib.loss import *
 from lib.dataset import *
 from lib.model import Model
 from lib.utils import *
-from scipy.stats import linregress
 
 cwd = os.getcwd()
 

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 
 
-export default function Sidebar({ model, setModel }: any) {
+export default function Sidebar({ model, setModel, setMetricsImages }: any) {
   const [parameters, setParameters] = useState<any>({});
 
   function handleClick(name: string) {
@@ -15,9 +15,16 @@ export default function Sidebar({ model, setModel }: any) {
         model: model
       });
       response.then((res) => {
-        console.log(res.data);
         setParameters(res.data);
       })
+
+      const response_metrics = axios.post("/api/metrics", {
+        model: model
+      });
+      response_metrics.then((res) => {
+        setMetricsImages(res.data);
+      })
+
     } catch (error) {
       console.log(error);
     }
