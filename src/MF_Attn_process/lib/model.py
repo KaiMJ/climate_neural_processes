@@ -322,13 +322,13 @@ class MLP_Z1Z2_Encoder(nn.Module):
         return mean
 
 
-class Model(nn.Module):
+class MF_ATTN_Model(nn.Module):
     """
     Latent Model (Attentive Neural Process)
     """
 
     def __init__(self, config):
-        super(Model, self).__init__()
+        super(MF_ATTN_Model, self).__init__()
 
         self.l1_latent_encoder = LatentEncoder(config, level=1)
         self.l2_latent_encoder = LatentEncoder(config, level=2)

@@ -15,10 +15,12 @@ from tqdm import tqdm
 import sys
 sys.path.append('../')
 
-from lib.loss import *
-from lib.dataset import *
-from lib.model import Model
-from lib.utils import *
+from lib.loss import NegRLoss, mae_loss, mse_loss, norm_rmse_loss, mae_metric, nll_loss, kl_div
+from lib.dataset import MutliDataset
+from lib.model import MFNP_Model as Model
+from lib.utils import get_logger, set_seed, SeedContext, sort_fn, split_context_target
+cwd = os.getcwd()
+
 
 
 cwd = os.getcwd()
@@ -389,4 +391,5 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 
-    main()
+    with SeedContext(seed):
+        main()
