@@ -1,29 +1,30 @@
-title: SFNP_CAM5
+title: transfer
 
-data_dir: /data/allen/climate_data/
+data_dir: /data/kai/
 log_dir: logs
 
 batch_size: 1
-lr: 0.00000909
-global_batch_idx: 0
-batch_dropout: 0.345198
-
-weight_decay: 0.116996
-decay_steps: 10
+lr: 0.000227
 decay_rate: 0.9
 
-patience: 20
-best_loss: 999999999
+global_batch_idx: 0
+max_patience: 50
+patience: 0
+best_loss: 0
+
 context_percentage_low: 0.2
 context_percentage_high: 0.5
 
 model:
-  hidden_layers: 7
-  z_hidden_layers: 7
-  z_hidden_dim: 32
-  z_dim: 96
   input_dim: 108
   output_dim: 26
-  hidden_dim: 64
+  hidden_layers: 7
+  hidden_dim: 512
+  z_hidden_layers: 4
+  z_hidden_dim: 128
+  z_dim: 128
+  leaky_relu_slope: 0.15
+  dropout_rate: 0.01
 
 load_checkpoint: False
+transfer_learning: "logs/SFNP_low_seed0_lr0.000227_bs_1_Thu May 18 07:40:47 2023/best.pt"

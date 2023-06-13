@@ -1,22 +1,24 @@
-import os
-from ray import tune, air
-from lib.model import Model
-from lib.dataset import *
-from lib.loss import *
-from lib.utils import *
-from tqdm import tqdm
-import torch
-from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import StepLR, CyclicLR
-from torch.utils.tensorboard import SummaryWriter
-import numpy as np
-import yaml
-import glob
-import os
-import dill
-import time
 import argparse
-from scipy.stats import linregress
+from ray import tune, air
+import time
+import random
+import dill
+import os
+import glob
+import yaml
+import numpy as np
+from torch.utils.tensorboard import SummaryWriter
+from torch.optim.lr_scheduler import StepLR, CyclicLR
+from torch.utils.data import DataLoader
+import torch
+from tqdm import tqdm
+import sys
+sys.path.append('../')
+
+from lib.loss import NegRLoss, mae_loss, mse_loss, norm_rmse_loss, mae_metric, nll_loss, kld_gaussian_loss
+from lib.dataset import MultiDataset
+from lib.model import MFNP_Model as Model
+from lib.utils import get_logger, set_seed, SeedContext, sort_fn, split_context_target
 
 cwd = os.getcwd()
 
@@ -92,74 +94,50 @@ class Supervisor(tune.Trainable):
     def init_dataloader(self):
         # Train and validation data split
         # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004
-        l2_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
-        l2_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
-        l1_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
-        l1_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
+        l1_x_data = sorted(glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
+        l1_y_data = sorted(glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
+        l2_x_data = sorted(glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
+        l2_y_data = sorted(glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
 
         split_n = int(365*0.8)
-        l2_x_train = l2_x_data[:split_n]
-        l2_y_train = l2_y_data[:split_n]
-        l2_x_valid = l2_x_data[split_n:365]
-        l2_y_valid = l2_y_data[split_n:365]
         l1_x_train = l1_x_data[:split_n]
         l1_y_train = l1_y_data[:split_n]
         l1_x_valid = l1_x_data[split_n:365]
         l1_y_valid = l1_y_data[split_n:365]
 
-        l2_x_scaler_minmax = dill.load(
-            open(f"../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
-        l2_y_scaler_minmax = dill.load(
-            open(f"../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
-        l1_x_scaler_minmax = dill.load(
-            open(f"../../scalers/x_CAM5_minmax_scaler.dill", 'rb'))
-        l1_y_scaler_minmax = dill.load(
-            open(f"../../scalers/y_CAM5_minmax_scaler.dill", 'rb'))
+        l2_x_train = l2_x_data[:split_n]
+        l2_y_train = l2_y_data[:split_n]
+        l2_x_valid = l2_x_data[split_n:365]
+        l2_y_valid = l2_y_data[split_n:365]
 
-        # Change to first 26 variables
-        # Follow Azis's process. X -> X/(max(abs(X))
-        l2_x_scaler_minmax.min = l2_x_scaler_minmax.min * 0
-        l2_x_scaler_minmax.max = np.abs(l2_x_scaler_minmax.max)
-        l2_y_scaler_minmax.min = l2_y_scaler_minmax.min[:26] * 0
-        l2_y_scaler_minmax.max = np.abs(l2_y_scaler_minmax.max[:26])
-        l1_x_scaler_minmax.min = l1_x_scaler_minmax.min * 0
-        l1_x_scaler_minmax.max = np.abs(l1_x_scaler_minmax.max)
-        l1_y_scaler_minmax.min = l1_y_scaler_minmax.min[:26] * 0
-        l1_y_scaler_minmax.max = np.abs(l1_y_scaler_minmax.max[:26])
+        l1_x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_x_max.npy")
+        self.l1_y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_y_max.npy")
+        l2_x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/dataset_2_x_max.npy")
+        self.l2_y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/dataset_2_y_max.npy")
 
-        self.l2_x_scaler_minmax = l2_x_scaler_minmax
-        self.l2_y_scaler_minmax = l2_y_scaler_minmax
-        self.l1_x_scaler_minmax = l1_x_scaler_minmax
-        self.l1_y_scaler_minmax = l1_y_scaler_minmax
-
-        train_dataset = MultiDataset(l1_x_train, l1_y_train, l2_x_train, l2_y_train,
-                                     l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=l1_y_scaler_minmax,
-                                     l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, variables=[26, 26])
+        train_dataset = MultiDataset(
+            l1_x_train, l1_y_train, l2_x_train, l2_y_train, 
+            l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=self.l1_y_scaler_minmax, 
+            l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=self.l2_y_scaler_minmax,
+            variables=[26, 26])
         self.train_loader = DataLoader(
-            train_dataset, self.config['batch_size'], shuffle=True, drop_last=False, num_workers=4, pin_memory=True)
-
-        val_dataset = MultiDataset(l1_x_valid, l1_y_valid, l2_x_valid, l2_y_valid,
-                                   l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=l1_y_scaler_minmax,
-                                   l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, variables=[26, 26])
+            train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=2, pin_memory=True)
+        val_dataset = MultiDataset(
+            l1_x_valid, l1_y_valid, l2_x_valid, l2_y_valid, 
+            l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=self.l1_y_scaler_minmax, 
+            l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=self.l2_y_scaler_minmax,
+            variables=[26, 26])
         self.val_loader = DataLoader(
-            val_dataset, self.config['batch_size'], shuffle=False, drop_last=False, num_workers=4, pin_memory=True)
-
-        self.l2_y_scaler_minmax = l2_y_scaler_minmax
+            val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
 
-        self.optim = torch.optim.Adam(self.model.parameters(
-        ), lr=self.config['lr'], weight_decay=self.config['weight_decay'])
-        self.scheduler = StepLR(
-            self.optim, step_size=self.config['decay_steps'], gamma=self.config['decay_rate'])
-        self.logger.info(
-            f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}")
+        self.optim = torch.optim.Adam(self.model.parameters(), lr=self.config['lr'])
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optim, gamma=self.config['decay_rate'])
+        self.logger.info(f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}")
         self.scaler = torch.cuda.amp.GradScaler()
+        self.loss_fn = NegRLoss()
 
     def model_step(self, eval):
         start = time.time()
@@ -220,15 +198,15 @@ class Supervisor(tune.Trainable):
                     self.model(l2_x_context, l2_y_context, l2_x_target, l1_x_context, l1_y_context, l1_x_target,
                                l2_x_all=l2_x, l2_y_all=l2_y, l1_x_all=l1_x, l1_y_all=l1_y)
 
-                nll = nll_loss(l2_output_mu, l2_output_cov, l2_y_target) + \
-                    nll_loss(l1_output_mu, l1_output_cov, l1_y_target)
-                mae = mae_loss(l2_output_mu, l2_y_target) + \
-                    mae_loss(l1_output_mu, l1_y_target)
-                kld = kld_gaussian_loss(l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c) + \
-                    kld_gaussian_loss(
-                        l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c)
+                nll = nll_loss(l2_output_mu, l2_output_cov, l2_y_target) + nll_loss(l1_output_mu, l1_output_cov, l1_y_target)
+                l1_mae = mae_loss(l2_output_mu, l2_y_target)
+                l2_mae = mae_loss(l1_output_mu, l1_y_target)
 
-                loss = nll + mae + kld
+                kld = kld_gaussian_loss(l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c) + \
+                    kld_gaussian_loss(l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c)
+                
+                r_score = self.loss_fn(l2_output_mu, l2_y_target).detach()
+                loss = nll + l1_mae + l2_mae + kld
 
             if not eval:
                 self.optim.zero_grad()
@@ -238,44 +216,36 @@ class Supervisor(tune.Trainable):
                 if i == 0:
                     self.scheduler.step()
 
-            mse = mse_loss(l2_output_mu, l2_y_target, mean=True).detach()
+            mse = mse_loss(l2_output_mu, l2_y_target).detach()
             norm_rmse = norm_rmse_loss(l2_output_mu, l2_y_target).detach()
-            non_y_pred = self.l2_y_scaler_minmax.inverse_transform(
-                l2_output_mu.squeeze().detach().cpu().numpy())
-            non_y = self.l2_y_scaler_minmax.inverse_transform(
-                l2_y_target.squeeze().detach().cpu().numpy())
-
-            r2_mean = 0
-            # linregress could not load every value. Approximates R2.
-            mb_size = 16
-            for v in range(non_y_pred.shape[-1]):
-                for mb in range(mb_size):
-                    result = linregress(
-                        non_y[mb::mb_size, v], non_y_pred[mb::mb_size, v])
-                    r2_mean += result.rvalue ** 2
-            r2_mean = r2_mean / (non_y_pred.shape[-1] * mb_size)
-
+            non_y_pred = self.l2_y_scaler_minmax * l2_output_mu.squeeze().detach().cpu().numpy()
+            non_y = self.l2_y_scaler_minmax * l2_y_target.squeeze().detach().cpu().numpy()
             non_mae = mae_metric(non_y_pred, non_y)
-            mse_total += mse.item()
-            mae_total += mae.item()
-            norm_rmse_total += norm_rmse
-            non_mae_total += non_mae.item()
-            r2_total += r2_mean
+            
+            r_score[r_score > 1.0] = 1.0
+            r_score[r_score < -1.0] = -1.0
+            r2 = (r_score ** 2).mean()
 
             if not eval:
                 writer.add_scalar("mse", mse.item(), self.global_batch_idx)
-                writer.add_scalar("mae", mae.item(), self.global_batch_idx)
+                writer.add_scalar("mae", l2_mae.item(), self.global_batch_idx)
                 writer.add_scalar("norm_rmse", norm_rmse,
                                   self.global_batch_idx)
                 writer.add_scalar("non_mae", non_mae.item(),
                                   self.global_batch_idx)
-                writer.add_scalar("r2", r2_mean, self.global_batch_idx)
+                writer.add_scalar("r2", r2, self.global_batch_idx)
                 writer.flush()
                 self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(
-                f"R2: {r2_mean:.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
+                f"R2: {r2.item():.6f} MAE: {l2_mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
+
+            mse_total += mse.detach()
+            mae_total += l2_mae
+            non_mae_total += non_mae
+            norm_rmse_total += norm_rmse
+            r2_total += r2.item()
 
         mse_total /= i+1
         mae_total /= i+1
@@ -406,6 +376,9 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     # seed = args.seed
 
-    device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:1" if torch.cuda.is_available() else 'cpu')
 
-    main()
+    with SeedContext(seed):
+        main()
+
+#3035

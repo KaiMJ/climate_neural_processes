@@ -1,7 +1,6 @@
-title: sfattn_train
+title: Transfer
 
-data_dir: /home/mkim/Nserver/climate_processes/data
-# /dta/allen/climate_data
+data_dir: /data/kai
 log_dir: logs
 
 batch_size: 1
@@ -18,8 +17,9 @@ decay_steps: 5
 decay_rate: 0.9
 gamma: 1
 
-patience: 20
-best_loss: 99999
+max_patience: 20
+patience: 0
+best_loss: 0
 context_percentage_low: 0.2
 context_percentage_high: 0.5
 
@@ -28,9 +28,11 @@ model:
   l2_output_dim: 26
 
   num_heads: 16
-  dropout: 0.1748127815197366
+  dropout_rate: 0.1748127815197366
   attention_layers: 12
   hidden_dim: 160
   hidden_layers: 3
+  leaky_relu_slope: 0.15
 
 load_checkpoint: false
+transfer_learning: /data/kai/climate_neural_processes/src/SF_Attn/logs/Low_seed0_lr0.000139_bs_1_Mon Jun 12 23:08:55 2023/best.pt
