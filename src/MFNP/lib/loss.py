@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import warnings
+import torch.nn as nn
 
 def nll_loss(pred_mu, pred_cov, y, mean=True):
     pred_std = torch.sqrt(pred_cov)
@@ -78,3 +79,22 @@ def norm_rmse_loss(y_pred, y_true, metric=False, mean=True):
         if mean:
             norm_rmse = norm_rmse.mean()
         return norm_rmse
+
+class NegRLoss(nn.Module):
+    def __init__(self, eps=1e-6):
+        super(NegRLoss, self).__init__()
+        self.eps = eps
+
+    def forward(self, x, y, np=False):
+        if np:
+            x = torch.from_numpy(x)
+            y = torch.from_numpy(y)
+
+        xmean = torch.mean(x, dim=0)
+        ymean = torch.mean(y, dim=0)
+        ssxm = torch.mean( (x-xmean)**2, dim=0)
+        ssym = torch.mean( (y-ymean)**2, dim=0 )
+        ssxym = torch.mean( (x-xmean) * (y-ymean), dim=0 )
+        r = ssxym / torch.sqrt(ssxm * ssym)
+
+        return r

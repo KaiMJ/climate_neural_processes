@@ -156,7 +156,7 @@ class MLP_Z1Z2_Encoder(nn.Module):
         return mean, cov
 
 
-class Model(nn.Module):
+class MFNP_Model(nn.Module):
     def __init__(self, config):
         super().__init__()
 

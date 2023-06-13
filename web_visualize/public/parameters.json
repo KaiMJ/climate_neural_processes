@@ -115,5 +115,25 @@
     "hidden_dim": 512,
     "dropout_rate": 0.01,
     "leaky_relu_slope": 0.15
+  },
+  "MF_DNN": {
+    "epochs": 70,
+    "loss": "mse1 + mse2",
+    "memory": "20220 Mib",
+    "parameters": 3552336,
+    "best val R2": 0,
+    "best NON-MAE": 0,
+    "best MSE": 0,
+    "best MAE": 0,
+    "best NRMSE": 0,
+    "learning rate": 0.000227,
+    "scheduler": "exponential",
+    "scaler": "max",
+    "decay_rate": 0.9,
+    "num_layers": "7 * 2",
+    "hidden_dim": 512,
+    "dropout_rate": 0.01,
+    "leaky_relu_slope": 0.15
   }
+
 }

@@ -1,4 +1,4 @@
-title: Low
+title: Transfer
 
 data_dir: /data/kai
 log_dir: logs
@@ -35,3 +35,4 @@ model:
   leaky_relu_slope: 0.15
 
 load_checkpoint: false
+transfer_learning: /data/kai/climate_neural_processes/src/SF_Attn/logs/Low_seed0_lr0.000139_bs_1_Mon Jun 12 23:08:55 2023/best.pt

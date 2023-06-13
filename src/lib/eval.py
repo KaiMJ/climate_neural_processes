@@ -61,7 +61,6 @@ class Evaluator():
         self.test_loader = DataLoader(
             test_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
 
-
     def get_metrics(self, loader):
         self.get_R_stats(loader)
         self.r = self.ssxym / np.sqrt(self.ssxm * self.ssym)
@@ -73,29 +72,21 @@ class Evaluator():
 
             x = x.reshape(-1, 1, x.shape[-1]).to(self.device)
             y = y.reshape(-1, 1, y.shape[-1]).to(self.device)
-            context_idxs, target_idxs = split_context_target(
-                x, self.config['context_percentage_low'], self.config['context_percentage_high'])
-
-            x_context = x[context_idxs]
-            y_context = y[context_idxs]
-            x_target = x[target_idxs]
-            y_target = y[target_idxs]
 
             with torch.cuda.amp.autocast():
-                l2_output_mu, l2_output_cov, l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c = self.model(
-                    x_context, y_context, x_target, x_all=x, y_all=y)
+                l2_output_mu = self.model(x)
 
             if type(self.y_scaler) == np.ndarray:
                 non_y_pred = self.y_scaler * l2_output_mu.squeeze().cpu().numpy()
-                non_y = self.y_scaler * y_target.squeeze().cpu().numpy()
+                non_y = self.y_scaler * y.squeeze().cpu().numpy()
             else:
                 non_y_pred = self.y_scaler.inverse_transform(
                     l2_output_mu.squeeze().cpu().numpy())
                 non_y = self.y_scaler.inverse_transform(
-                    y_target.squeeze().cpu().numpy())
-            return non_y, non_y_pred, context_idxs, target_idxs
+                    y.squeeze().cpu().numpy())
+            return non_y, non_y_pred
 
-    def get_loss(self):
+    def get_loss(self, type="non_mae"):
         step_size = len(self.train_loader)
         train_event_file = sorted(glob.glob(os.path.join(
             self.dirpath, "runs/train/events.out.tfevents*")), key=os.path.getctime)[-1]
@@ -106,12 +97,11 @@ class Evaluator():
         train_acc.Reload()
         valid_acc.Reload()
 
-        valid_values = [s.value for s in valid_acc.Scalars("non_mae")]
+        valid_values = [s.value for s in valid_acc.Scalars(type)]
         n_epochs = len(valid_values)
 
         # Change each iteration to epochs
-        train_values = np.array(
-            [s.value for s in train_acc.Scalars("non_mae")])
+        train_values = np.array([s.value for s in train_acc.Scalars(type)])
         max_n = min(len(train_values) // step_size, n_epochs)
         train_values = train_values[:max_n * step_size]
         valid_values = valid_values[:max_n]
@@ -127,7 +117,7 @@ class Evaluator():
 
         with torch.no_grad():
             for i, data in enumerate(tqdm(loader, total=len(loader))):
-                non_y, non_y_pred, _, _ = self.forward_pass(data)
+                non_y, non_y_pred = self.forward_pass(data)
                 self.ssxm += ((non_y - self.y_mean)**2).sum(0)
                 self.ssym += ((non_y_pred - self.y_pred_mean)**2).sum(0)
                 self.ssxym += ((non_y - self.y_mean) *
@@ -151,7 +141,7 @@ class Evaluator():
 
         with torch.no_grad():
             for i, data in enumerate(tqdm(loader, total=len(loader))):
-                non_y, non_y_pred, _, _ = self.forward_pass(data)
+                non_y, non_y_pred = self.forward_pass(data)
 
                 non_mae = mae_metric(non_y_pred, non_y, mean=False)
 
@@ -171,3 +161,31 @@ class Evaluator():
         self.y_pred_mean /= self.n_total
         self.non_mae /= self.n_total
         self.nmae = self.non_mae / self.y_max
+
+    def plot_scenario(self, day, hour=0, split="test"):
+        """
+            Plots xth day of the scenario.
+        """
+        if split == "test":
+            loader = self.test_loader
+        elif split == "valid":
+            loader = self.valid_loader
+        else:
+            loader = self.train_loader
+
+        for i, data in enumerate(loader):
+            if i < day:
+                continue
+            x, y = data
+
+            with torch.no_grad():
+                x = x.reshape(24, -1, 1, x.shape[-1])[hour].to(device)
+                y = y.reshape(24, -1, 1, y.shape[-1])[hour].to(device)
+                with torch.cuda.amp.autocast():
+                    l2_output_mu = self.model(x)
+                non_y_pred = self.l2_y_scaler.inverse_transform(
+                    l2_output_mu.squeeze().cpu().numpy())
+                non_y = self.l2_y_scaler.inverse_transform(
+                    y.squeeze().cpu().numpy())
+
+            return non_y, non_y_pred

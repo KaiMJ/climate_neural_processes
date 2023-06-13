@@ -16,12 +16,11 @@ import sys
 sys.path.append('../')
 
 from lib.loss import NegRLoss, mae_loss, mse_loss, norm_rmse_loss, mae_metric
-from lib.dataset import l2Dataset
-from lib.model import Transformer_Model as Model
+from lib.dataset import MultiDataset
+from lib.model import MF_DNN_Model as Model
 from lib.utils import get_logger, set_seed, SeedContext, sort_fn
 
 cwd = os.getcwd()
-
 
 class Supervisor(tune.Trainable):
     """
@@ -94,55 +93,48 @@ class Supervisor(tune.Trainable):
     def init_dataloader(self):
         # Train and validation data split
         # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004
-        l2_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
-        l2_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
+        l1_x_data = sorted(glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
+        l1_y_data = sorted(glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
+        l2_x_data = sorted(glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
+        l2_y_data = sorted(glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
 
         split_n = int(365*0.8)
+        l1_x_train = l1_x_data[:split_n]
+        l1_y_train = l1_y_data[:split_n]
+        l1_x_valid = l1_x_data[split_n:365]
+        l1_y_valid = l1_y_data[split_n:365]
+
         l2_x_train = l2_x_data[:split_n]
         l2_y_train = l2_y_data[:split_n]
         l2_x_valid = l2_x_data[split_n:365]
         l2_y_valid = l2_y_data[split_n:365]
 
-        # x_scaler_minmax = dill.load(
-        #     open(f"{cwd}/../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
-        # y_scaler_minmax = dill.load(
-        #     open(f"{cwd}/../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
+        l1_x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_x_max.npy")
+        self.l1_y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_y_max.npy")
+        l2_x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/dataset_2_x_max.npy")
+        self.l2_y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/dataset_2_y_max.npy")
 
-        # # Change to first 26 variables
-        # # Follow Azis's process. X -> X/(max(abs(X))
-        # x_scaler_minmax.min = x_scaler_minmax.min * 0
-        # x_scaler_minmax.max = np.abs(x_scaler_minmax.max)
-        # y_scaler_minmax.min = y_scaler_minmax.min[:26] * 0
-        # # Change to first 26 variables
-        # y_scaler_minmax.max = np.abs(y_scaler_minmax.max[:26])
-        # self.x_scaler_minmax = x_scaler_minmax
-        # self.y_scaler_minmax = y_scaler_minmax
-
-        x_scaler_minmax = np.load(f"{cwd}/../../scalers/metrics/dataset_2_x_max.npy")
-        self.y_scaler_minmax = np.load(f"{cwd}/../../scalers/metrics/dataset_2_y_max.npy")
-
-        train_dataset = l2Dataset(
-            l2_x_train, l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
+        train_dataset = MultiDataset(
+            l1_x_train, l1_y_train, l2_x_train, l2_y_train, 
+            l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=self.l1_y_scaler_minmax, 
+            l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=self.l2_y_scaler_minmax,
+            variables=[26, 26])
         self.train_loader = DataLoader(
-            train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=4, pin_memory=True)
-        val_dataset = l2Dataset(
-            l2_x_valid, l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
+            train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=2, pin_memory=True)
+        val_dataset = MultiDataset(
+            l1_x_valid, l1_y_valid, l2_x_valid, l2_y_valid, 
+            l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=self.l1_y_scaler_minmax, 
+            l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=self.l2_y_scaler_minmax,
+            variables=[26, 26])
         self.val_loader = DataLoader(
-            val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=4, pin_memory=True)
+            val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
-        if self.config["transfer_learning"]:
-            self.model.load_state_dict(torch.load(self.config["transfer_learning"])["model"])
 
-        self.optim = torch.optim.Adam(
-            self.model.parameters(), lr=self.config['lr'])
-        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
-            self.optim, gamma=self.config['decay_rate'])
-        self.logger.info(
-            f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}. Device={device}")
+        self.optim = torch.optim.Adam(self.model.parameters(), lr=self.config['lr'])
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optim, gamma=self.config['decay_rate'])
+        self.logger.info(f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}")
         self.scaler = torch.cuda.amp.GradScaler()
         self.loss_fn = NegRLoss()
 
@@ -168,47 +160,20 @@ class Supervisor(tune.Trainable):
         else:
             self.model.eval()
 
-        for i, (x, y) in enumerate(pbar := tqdm(loader, total=len(loader))):
-            # mini batch gradients
-            # n_mb = 4
-            # mse_mb = 0
-            # mae_mb = 0
-            # non_mae_mb = 0
-            # norm_rmse_mb = 0
-            # r2_mb = 0
-
-            # Positional embedding
-            # x_idxs, y_idxs = np.meshgrid(np.arange(96), np.arange(144))
-            # x_idxs = x_idxs / 96 * np.pi
-            # y_idxs = y_idxs / 144 * np.pi
-            # pos_idxs = np.dstack((np.sin(x_idxs), np.cos(x_idxs), np.sin(y_idxs), np.cos(y_idxs)))
-            # pos_idxs = pos_idxs.reshape(96*144, 1, 4)
-            # pos_idxs = np.arange(96 * 144).reshape(-1, 1, 1)
-            # pos_idxs = torch.from_numpy(pos_idxs).int()
-            # pos_idxs = pos_idxs.repeat(24, 1, 1).to(device)
-
-            # for bg_idx in range(n_mb):
-            #     x = x_[:, bg_idx::n_mb]
-            #     y = y_[:, bg_idx::n_mb]
-            # pos_idxs_mb = pos_idxs[bg_idx::n_mb]
-
-            if eval is False:  # Random dropout during training
-                dropout = self.config['batch_dropout']
-                n = int(x.shape[1] * (1 - dropout))
-                idxs = np.random.permutation(np.arange(x.shape[1]))[:n]
-                x = x[:, idxs, :]
-                y = y[:, idxs, :]
-                # pos_idxs_mb = pos_idxs_mb[idxs]
-
-            x = x.reshape(-1, 1, x.shape[-1]).to(device)
-            y = y.reshape(-1, 1, y.shape[-1]).to(device)
+        for i, (l1_x, l1_y, l2_x, l2_y) in enumerate(pbar := tqdm(loader, total=len(loader))):
+            l1_x = l1_x.reshape(-1, 1, l1_x.shape[-1]).to(device)
+            l1_y = l1_y.reshape(-1, 1, l1_y.shape[-1]).to(device)
+            l2_x = l2_x.reshape(-1, 1, l2_x.shape[-1]).to(device)
+            l2_y = l2_y.reshape(-1, 1, l2_y.shape[-1]).to(device)
 
             with torch.cuda.amp.autocast():
-                l2_output_mu = self.model(x)
+                l1_output_mu, l2_output_mu = self.model(l1_x, l2_x)
 
-                mse = mse_loss(l2_output_mu, y)
-                r_score = self.loss_fn(l2_output_mu, y).detach()
-                loss = mse
+                l1_mse = mse_loss(l1_output_mu, l1_y, mean=True)
+                l2_mse = mse_loss(l2_output_mu, l2_y, mean=True)
+
+                r_score = self.loss_fn(l2_output_mu, l2_y).detach()
+                loss = l1_mse + l2_mse
 
                 if not eval:
                     self.optim.zero_grad()
@@ -218,18 +183,18 @@ class Supervisor(tune.Trainable):
                     if i == 0:
                         self.scheduler.step()
 
-            mae = mae_loss(l2_output_mu, y).detach()
-            norm_rmse = norm_rmse_loss(l2_output_mu, y).detach()
-            non_y_pred = self.y_scaler_minmax * l2_output_mu.squeeze().detach().cpu().numpy()
-            non_y = self.y_scaler_minmax * y.squeeze().detach().cpu().numpy()
-            non_mae = mae_metric(non_y_pred, non_y)
+                mae = mae_loss(l2_output_mu, l2_y).detach()
+                norm_rmse = norm_rmse_loss(l2_output_mu, l2_y).detach()
+                non_y_pred = self.l2_y_scaler_minmax * l2_output_mu.squeeze().detach().cpu().numpy()
+                non_y = self.l2_y_scaler_minmax * l2_y.squeeze().detach().cpu().numpy()
+                non_mae = mae_metric(non_y_pred, non_y)
 
-            r_score[r_score > 1.0] = 1.0
-            r_score[r_score < -1.0] = -1.0
-            r2 = (r_score ** 2).mean()
+                r_score[r_score > 1.0] = 1.0
+                r_score[r_score < -1.0] = -1.0
+                r2 = (r_score ** 2).mean()
 
             if not eval:
-                writer.add_scalar("mse", mse.item(), self.global_batch_idx)
+                writer.add_scalar("mse", l2_mse.item(), self.global_batch_idx)
                 writer.add_scalar("mae", mae.item(), self.global_batch_idx)
                 writer.add_scalar("norm_rmse", norm_rmse,
                                   self.global_batch_idx)
@@ -243,7 +208,7 @@ class Supervisor(tune.Trainable):
             pbar.set_postfix_str(
                 f"R2: {r2.item():.6f} MAE: {mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
 
-            mse_total += mse.detach()
+            mse_total += l2_mse.detach()
             mae_total += mae
             non_mae_total += non_mae
             norm_rmse_total += norm_rmse
@@ -323,27 +288,28 @@ class Supervisor(tune.Trainable):
 def main():
     if TUNE:
         num_samples = 30
-        max_iter = 3
-        os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+        max_iter = 2
+
         param_space = {
             "train": {
                 "lr": tune.qloguniform(1e-6, 1e-3, 1e-6),
-                "batch_dropout": tune.uniform(0, 0.2),
-                "weight_decay": tune.uniform(0, 0.3),
-                "decay_rate": tune.uniform(0.9, 1)
+                "batch_dropout": tune.uniform(0, 0.5),
+                "weight_decay": tune.uniform(0, 0.2),
+                # "decay_steps": 10,
+                # "decay_rate": 0.9
             },
             "model": {
                 "num_heads": tune.choice([4, 8, 16]),
-                "attention_layers": tune.choice([6, 8, 10, 12]),
-                "n_embd": tune.choice([128, 256]),
-                "dropout": tune.uniform(0, 0.3),
+                "attention_layers": tune.choice([4, 8, 12]),
+                "n_embd": tune.choice([32, 48, 64, 96, 128]),
+                "dropout": tune.uniform(0, 0.4),
             },
         }
         tuner = tune.Tuner(
-            tune.with_resources(Supervisor, {"cpu": 12, "gpu": 1}),
+            tune.with_resources(Supervisor, {"cpu": 8, "gpu": 0.5}),
             tune_config=tune.TuneConfig(
                 scheduler=tune.schedulers.ASHAScheduler(
-                    mode="max", metric="loss", max_t=max_iter),
+                    mode="min", metric="loss", max_t=max_iter),
                 num_samples=num_samples,
             ),
             run_config=air.RunConfig(
@@ -370,6 +336,7 @@ def main():
 
 if __name__ == "__main__":
     TUNE = False
+
     seed = 0
     # parser = argparse.ArgumentParser()
     # parser.add_argument("seed", type=int, help="seed for random number generator")

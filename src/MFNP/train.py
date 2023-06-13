@@ -1,22 +1,25 @@
-import os
-from ray import tune, air
-from lib.model import Model
-from lib.dataset import *
-from lib.loss import *
-from lib.utils import *
-from tqdm import tqdm
-import torch
-from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import StepLR, CyclicLR
-from torch.utils.tensorboard import SummaryWriter
-import numpy as np
-import yaml
-import glob
-import os
-import dill
-import time
 import argparse
-from scipy.stats import linregress
+from ray import tune, air
+import time
+import random
+import dill
+import os
+import glob
+import yaml
+import numpy as np
+from torch.utils.tensorboard import SummaryWriter
+from torch.optim.lr_scheduler import StepLR, CyclicLR
+from torch.utils.data import DataLoader
+import torch
+from tqdm import tqdm
+import sys
+sys.path.append('../')
+
+from lib.loss import *
+from lib.dataset import *
+from lib.model import Model
+from lib.utils import *
+
 
 cwd = os.getcwd()
 
@@ -92,74 +95,52 @@ class Supervisor(tune.Trainable):
     def init_dataloader(self):
         # Train and validation data split
         # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004
-        l2_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
-        l2_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
-        l1_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
-        l1_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
+        l1_x_data = sorted(glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
+        l1_y_data = sorted(glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
+        l2_x_data = sorted(glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
+        l2_y_data = sorted(glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
 
         split_n = int(365*0.8)
-        l2_x_train = l2_x_data[:split_n]
-        l2_y_train = l2_y_data[:split_n]
-        l2_x_valid = l2_x_data[split_n:365]
-        l2_y_valid = l2_y_data[split_n:365]
         l1_x_train = l1_x_data[:split_n]
         l1_y_train = l1_y_data[:split_n]
         l1_x_valid = l1_x_data[split_n:365]
         l1_y_valid = l1_y_data[split_n:365]
 
-        l2_x_scaler_minmax = dill.load(
-            open(f"../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
-        l2_y_scaler_minmax = dill.load(
-            open(f"../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
-        l1_x_scaler_minmax = dill.load(
-            open(f"../../scalers/x_CAM5_minmax_scaler.dill", 'rb'))
-        l1_y_scaler_minmax = dill.load(
-            open(f"../../scalers/y_CAM5_minmax_scaler.dill", 'rb'))
+        l2_x_train = l2_x_data[:split_n]
+        l2_y_train = l2_y_data[:split_n]
+        l2_x_valid = l2_x_data[split_n:365]
+        l2_y_valid = l2_y_data[split_n:365]
 
-        # Change to first 26 variables
-        # Follow Azis's process. X -> X/(max(abs(X))
-        l2_x_scaler_minmax.min = l2_x_scaler_minmax.min * 0
-        l2_x_scaler_minmax.max = np.abs(l2_x_scaler_minmax.max)
-        l2_y_scaler_minmax.min = l2_y_scaler_minmax.min[:26] * 0
-        l2_y_scaler_minmax.max = np.abs(l2_y_scaler_minmax.max[:26])
-        l1_x_scaler_minmax.min = l1_x_scaler_minmax.min * 0
-        l1_x_scaler_minmax.max = np.abs(l1_x_scaler_minmax.max)
-        l1_y_scaler_minmax.min = l1_y_scaler_minmax.min[:26] * 0
-        l1_y_scaler_minmax.max = np.abs(l1_y_scaler_minmax.max[:26])
-
-        self.l2_x_scaler_minmax = l2_x_scaler_minmax
-        self.l2_y_scaler_minmax = l2_y_scaler_minmax
-        self.l1_x_scaler_minmax = l1_x_scaler_minmax
-        self.l1_y_scaler_minmax = l1_y_scaler_minmax
-
-        train_dataset = MultiDataset(l1_x_train, l1_y_train, l2_x_train, l2_y_train,
-                                     l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=l1_y_scaler_minmax,
-                                     l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, variables=[26, 26])
+        l1_x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_x_max.npy")
+        self.l1_y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_y_max.npy")
+        l2_x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/dataset_2_x_max.npy")
+        self.l2_y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/dataset_2_y_max.npy")
+        
+        train_dataset = MutliDataset(
+            l1_x_train, l1_y_train, l2_x_train, l2_y_train, 
+            l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=self.l1_y_scaler_minmax, 
+            l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=self.l2_y_scaler_minmax,
+            variables=[26, 26])
         self.train_loader = DataLoader(
-            train_dataset, self.config['batch_size'], shuffle=True, drop_last=False, num_workers=4, pin_memory=True)
-
-        val_dataset = MultiDataset(l1_x_valid, l1_y_valid, l2_x_valid, l2_y_valid,
-                                   l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=l1_y_scaler_minmax,
-                                   l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, variables=[26, 26])
+            train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=2, pin_memory=True)
+        val_dataset = MutliDataset(
+            l1_x_valid, l1_y_valid, l2_x_valid, l2_y_valid, 
+            l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=self.l1_y_scaler_minmax, 
+            l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=self.l2_y_scaler_minmax,
+            variables=[26, 26])
         self.val_loader = DataLoader(
-            val_dataset, self.config['batch_size'], shuffle=False, drop_last=False, num_workers=4, pin_memory=True)
+            val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
 
-        self.l2_y_scaler_minmax = l2_y_scaler_minmax
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
 
-        self.optim = torch.optim.Adam(self.model.parameters(
-        ), lr=self.config['lr'], weight_decay=self.config['weight_decay'])
-        self.scheduler = StepLR(
-            self.optim, step_size=self.config['decay_steps'], gamma=self.config['decay_rate'])
-        self.logger.info(
-            f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}")
+        self.optim = torch.optim.Adam(self.model.parameters(), lr=self.config['lr'])
+        self.scheduler = StepLR(self.optim, step_size=self.config['decay_steps'], gamma=self.config['decay_rate'])
+        self.logger.info(f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}")
         self.scaler = torch.cuda.amp.GradScaler()
+        self.loss_fn = NegRLoss()
+
 
     def model_step(self, eval):
         start = time.time()

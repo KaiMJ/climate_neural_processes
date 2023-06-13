@@ -39,7 +39,7 @@ class l2Dataset(Dataset):
     def __len__(self):
         return len(self.x_paths)
 
-class MutliDataset(Dataset):
+class MultiDataset(Dataset):
     def __init__(self, l1_x_paths, l1_y_paths, l2_x_paths, l2_y_paths, \
                 l1_x_scaler=None, l1_y_scaler=None, l2_x_scaler=None, l2_y_scaler=None, \
                 nested=True, variables=None):
@@ -71,15 +71,33 @@ class MutliDataset(Dataset):
         if self.variables is not None:
             l1_y = l1_y[:, :self.variables[0]]
             l2_y = l2_y[:, :self.variables[1]]
-
-        if self.l1_x_scaler is not None:
-            l1_x = self.l1_x_scaler.transform(l1_x)
-        if self.l1_y_scaler is not None:
-            l1_y = self.l1_y_scaler.transform(l1_y)
-        if self.l2_x_scaler is not None:
-            l2_x = self.l2_x_scaler.transform(l2_x)
-        if self.l2_y_scaler is not None:
-            l2_y = self.l2_y_scaler.transform(l2_y)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=RuntimeWarning)
+                
+            if self.l1_x_scaler is not None:
+                if type(self.l1_x_scaler) == np.ndarray:
+                    l1_x = l1_x / self.l1_x_scaler
+                else:
+                    l1_x = self.l1_x_scaler.transform(l1_x)
+            if self.l1_y_scaler is not None:
+                if type(self.l1_y_scaler) == np.ndarray:
+                    l1_y = l1_y / self.l1_y_scaler
+                else:
+                    l1_y = self.l1_y_scaler.transform(l1_y)
+            if self.l2_x_scaler is not None:
+                if type(self.l2_x_scaler) == np.ndarray:
+                    l2_x = l2_x / self.l2_x_scaler
+                else:
+                    l2_x = self.l2_x_scaler.transform(l2_x)
+            if self.l2_y_scaler is not None:
+                if type(self.l2_y_scaler) == np.ndarray:
+                    l2_y = l2_y / self.l2_y_scaler
+                else:
+                    l2_y = self.l2_y_scaler.transform(l2_y)
+            l1_x[np.isnan(l1_x)] = 0
+            l1_y[np.isnan(l1_y)] = 0
+            l2_x[np.isnan(l2_x)] = 0
+            l2_y[np.isnan(l2_y)] = 0
 
         l1_x = torch.from_numpy(l1_x).float()
         l1_y = torch.from_numpy(l1_y).float()
@@ -90,25 +108,3 @@ class MutliDataset(Dataset):
 
     def __len__(self):
         return len(self.l1_x_paths)
-
-class TransformerDataset(Dataset):
-    def __init__(self, x_paths, y_paths, x_scaler=None, y_scaler=None):
-        self.x_paths = x_paths
-        self.y_paths = y_paths
-        self.x_scaler = x_scaler
-        self.y_scaler = y_scaler
-
-    def __getitem__(self, idx):
-        x = np.load(self.x_paths[idx], mmap_mode='r')
-        y = np.load(self.y_paths[idx], mmap_mode='r')
-
-        if self.x_scaler is not None:
-            x = self.x_scaler.transform(x)
-        if self.y_scaler is not None:
-            y = self.y_scaler.transform(y)
-        x = torch.from_numpy(x).float()
-        y = torch.from_numpy(y).float()
-        return x, y, idx
-
-    def __len__(self):
-        return len(self.x_paths)

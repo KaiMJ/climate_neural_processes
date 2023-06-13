@@ -1,8 +1,4 @@
-from lib.model import Model
-from lib.dataset import *
-from lib.loss import *
-# from ray import tune, air
-from lib.utils import *
+from ray import tune, air
 from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
@@ -14,14 +10,17 @@ import glob
 import os
 import dill
 import time
-import argparse
 
+import sys
+sys.path.append('../')
+from lib.loss import NegRLoss, mae_loss, mse_loss, norm_rmse_loss, mae_metric, nll_loss, kl_div
+from lib.dataset import l2Dataset
+from lib.model import SF_ATTN_Model as Model
+from lib.utils import get_logger, set_seed, SeedContext, sort_fn, split_context_target
 cwd = os.getcwd()
 
-# tune.Trainable
 
-
-class Supervisor():
+class Supervisor(tune.Trainable):
     """
         setup and step is for ray tune.
     """
@@ -93,9 +92,9 @@ class Supervisor():
         # Train and validation data split
         # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004
         l2_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
         l2_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
+            glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
 
         split_n = int(365*0.8)
         l2_x_train = l2_x_data[:split_n]
@@ -103,8 +102,8 @@ class Supervisor():
         l2_x_valid = l2_x_data[split_n:365]
         l2_y_valid = l2_y_data[split_n:365]
 
-        x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_x_max.npy")
-        self.y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_y_max.npy")
+        x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/dataset_2_x_max.npy")
+        self.y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/dataset_2_y_max.npy")
 
         train_dataset = l2Dataset(
             l2_x_train, l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
@@ -117,6 +116,8 @@ class Supervisor():
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
+        if self.config["transfer_learning"]:
+            self.model.load_state_dict(torch.load(self.config["transfer_learning"])["model"])
 
         self.optim = torch.optim.Adam(self.model.parameters(
         ), lr=self.config['lr'], weight_decay=self.config['weight_decay'])
@@ -386,4 +387,5 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else 'cpu')
 
-    main()
+    with SeedContext(seed):
+        main()
