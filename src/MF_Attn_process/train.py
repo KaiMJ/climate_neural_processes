@@ -1,9 +1,5 @@
 import os
 from ray import tune, air
-from lib.model import Model
-from lib.dataset import *
-from lib.loss import *
-from lib.utils import *
 from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
@@ -16,7 +12,13 @@ import os
 import dill
 import time
 import argparse
-from scipy.stats import linregress
+import sys
+sys.path.append('../')
+
+from lib.loss import NegRLoss, mae_loss, mse_loss, norm_rmse_loss, mae_metric, nll_loss, kl_div
+from lib.dataset import MultiDataset
+from lib.model import MF_ATTN_Model as Model
+from lib.utils import get_logger, set_seed, SeedContext, sort_fn, split_context_target
 
 cwd = os.getcwd()
 
@@ -92,74 +94,50 @@ class Supervisor(tune.Trainable):
     def init_dataloader(self):
         # Train and validation data split
         # 04/01/2023 -- 01/17/2004 | 01/18/2004 - 3/31/2004
-        l2_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
-        l2_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
-        l1_x_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
-        l1_y_data = sorted(
-            glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
+        l1_x_data = sorted(glob.glob(f"{self.config['data_dir']}/CAM5/inputs_*"), key=sort_fn)
+        l1_y_data = sorted(glob.glob(f"{self.config['data_dir']}/CAM5/outputs_*"), key=sort_fn)
+        l2_x_data = sorted(glob.glob(f"{self.config['data_dir']}/SPCAM5/inputs_*"), key=sort_fn)
+        l2_y_data = sorted(glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
 
         split_n = int(365*0.8)
-        l2_x_train = l2_x_data[:split_n]
-        l2_y_train = l2_y_data[:split_n]
-        l2_x_valid = l2_x_data[split_n:365]
-        l2_y_valid = l2_y_data[split_n:365]
         l1_x_train = l1_x_data[:split_n]
         l1_y_train = l1_y_data[:split_n]
         l1_x_valid = l1_x_data[split_n:365]
         l1_y_valid = l1_y_data[split_n:365]
 
-        l2_x_scaler_minmax = dill.load(
-            open(f"../../scalers/x_SPCAM5_minmax_scaler.dill", 'rb'))
-        l2_y_scaler_minmax = dill.load(
-            open(f"../../scalers/y_SPCAM5_minmax_scaler.dill", 'rb'))
-        l1_x_scaler_minmax = dill.load(
-            open(f"../../scalers/x_CAM5_minmax_scaler.dill", 'rb'))
-        l1_y_scaler_minmax = dill.load(
-            open(f"../../scalers/y_CAM5_minmax_scaler.dill", 'rb'))
+        l2_x_train = l2_x_data[:split_n]
+        l2_y_train = l2_y_data[:split_n]
+        l2_x_valid = l2_x_data[split_n:365]
+        l2_y_valid = l2_y_data[split_n:365]
 
-        # Change to first 26 variables
-        # Follow Azis's process. X -> X/(max(abs(X))
-        l2_x_scaler_minmax.min = l2_x_scaler_minmax.min * 0
-        l2_x_scaler_minmax.max = np.abs(l2_x_scaler_minmax.max)
-        l2_y_scaler_minmax.min = l2_y_scaler_minmax.min[:26] * 0
-        l2_y_scaler_minmax.max = np.abs(l2_y_scaler_minmax.max[:26])
-        l1_x_scaler_minmax.min = l1_x_scaler_minmax.min * 0
-        l1_x_scaler_minmax.max = np.abs(l1_x_scaler_minmax.max)
-        l1_y_scaler_minmax.min = l1_y_scaler_minmax.min[:26] * 0
-        l1_y_scaler_minmax.max = np.abs(l1_y_scaler_minmax.max[:26])
+        l1_x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_x_max.npy")
+        self.l1_y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/lf_dataset_2_y_max.npy")
+        l2_x_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/dataset_2_x_max.npy")
+        self.l2_y_scaler_minmax = np.load(f"{cwd}/../../notebooks/scalers/dataset_2_y_max.npy")
 
-        self.l2_x_scaler_minmax = l2_x_scaler_minmax
-        self.l2_y_scaler_minmax = l2_y_scaler_minmax
-        self.l1_x_scaler_minmax = l1_x_scaler_minmax
-        self.l1_y_scaler_minmax = l1_y_scaler_minmax
-
-        train_dataset = MultiDataset(l1_x_train, l1_y_train, l2_x_train, l2_y_train,
-                                     l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=l1_y_scaler_minmax,
-                                     l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, variables=[26, 26])
+        train_dataset = MultiDataset(
+            l1_x_train, l1_y_train, l2_x_train, l2_y_train, 
+            l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=self.l1_y_scaler_minmax, 
+            l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=self.l2_y_scaler_minmax,
+            variables=[26, 26])
         self.train_loader = DataLoader(
-            train_dataset, self.config['batch_size'], shuffle=True, drop_last=False, num_workers=4, pin_memory=True)
-
-        val_dataset = MultiDataset(l1_x_valid, l1_y_valid, l2_x_valid, l2_y_valid,
-                                   l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=l1_y_scaler_minmax,
-                                   l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=l2_y_scaler_minmax, variables=[26, 26])
+            train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=2, pin_memory=True)
+        val_dataset = MultiDataset(
+            l1_x_valid, l1_y_valid, l2_x_valid, l2_y_valid, 
+            l1_x_scaler=l1_x_scaler_minmax, l1_y_scaler=self.l1_y_scaler_minmax, 
+            l2_x_scaler=l2_x_scaler_minmax, l2_y_scaler=self.l2_y_scaler_minmax,
+            variables=[26, 26])
         self.val_loader = DataLoader(
-            val_dataset, self.config['batch_size'], shuffle=False, drop_last=False, num_workers=4, pin_memory=True)
-
-        self.l2_y_scaler_minmax = l2_y_scaler_minmax
+            val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
 
     def init_model(self):
         self.model = Model(self.config['model']).to(device)
 
-        self.optim = torch.optim.Adam(self.model.parameters(
-        ), lr=self.config['lr'], weight_decay=self.config['weight_decay'])
-        self.scheduler = StepLR(
-            self.optim, step_size=self.config['decay_steps'], gamma=self.config['decay_rate'])
-        self.logger.info(
-            f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}")
+        self.optim = torch.optim.Adam(self.model.parameters(), lr=self.config['lr'])
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optim, gamma=self.config['decay_rate'])
+        self.logger.info(f"Total trainable parameters {sum(p.numel() for p in self.model.parameters() if p.requires_grad)}")
         self.scaler = torch.cuda.amp.GradScaler()
+        self.loss_fn = NegRLoss()
 
     def model_step(self, eval):
         start = time.time()
@@ -177,7 +155,7 @@ class Supervisor(tune.Trainable):
         non_mae_total = 0
         norm_rmse_total = 0
         non_norm_rmse_total = 0
-        r2_mean_total = 0
+        r2_total = 0
 
         if not eval:
             self.model.train()
@@ -190,7 +168,7 @@ class Supervisor(tune.Trainable):
             mse_mb = 0
             non_mae_mb = 0
             norm_rmse_mb = 0
-            r2_mean_mb = 0
+            r2_mb = 0
 
             for bg_idx in range(n_mb):
                 l2_x = l2_x_[:, bg_idx::n_mb]
@@ -227,12 +205,19 @@ class Supervisor(tune.Trainable):
 
                     nll = nll_loss(l2_output_mu, l2_output_cov, l2_y_target) + \
                         nll_loss(l1_output_mu, l1_output_cov, l1_y_target)
-                    mae = mae_loss(l2_output_mu, l2_y_target) + \
-                        mae_loss(l1_output_mu, l1_y_target)
+                    l1_mae = mae_loss(l2_output_mu, l2_y_target)
+                    l2_mae = mae_loss(l1_output_mu, l1_y_target)
+
                     kld = kl_div(l2_z_mu_all, l2_z_cov_all, l2_z_mu_c, l2_z_cov_c) + \
                         kl_div(l1_z_mu_all, l1_z_cov_all, l1_z_mu_c, l1_z_cov_c)
 
-                    loss = nll + mae + kld
+                    loss = nll + l1_mae + l2_mae + kld
+
+                    r_score = self.loss_fn(l2_output_mu, l2_y_target).detach()
+                    r_score[r_score > 1.0] = 1.0
+                    r_score[r_score < -1.0] = -1.0
+                    r_score[torch.isnan(r_score)] = 0
+                    r2 = (r_score ** 2).mean()
 
                     if not eval:
                         self.optim.zero_grad()
@@ -242,59 +227,54 @@ class Supervisor(tune.Trainable):
                         if i == 0:
                             self.scheduler.step()
 
-                mse = mse_loss(l2_output_mu, l2_y_target, mean=True).detach()
+                mse = mse_loss(l2_output_mu, l2_y_target).detach()
                 norm_rmse = norm_rmse_loss(l2_output_mu, l2_y_target).detach()
-                non_y_pred = self.l2_y_scaler_minmax.inverse_transform(
-                    l2_output_mu.squeeze().detach().cpu().numpy())
-                non_y = self.l2_y_scaler_minmax.inverse_transform(
-                    l2_y_target.squeeze().detach().cpu().numpy())
+                non_y_pred = self.l2_y_scaler_minmax * l2_output_mu.squeeze().detach().cpu().numpy()
+                non_y = self.l2_y_scaler_minmax * l2_y_target.squeeze().detach().cpu().numpy()
                 non_mae = mae_metric(non_y_pred, non_y)
 
-                r2_mean = 0
-                for v in range(non_y.shape[-1]):
-                    result = linregress(non_y[:, v], non_y_pred[:, v])
-                    r2_mean += result.rvalue ** 2
-                r2_mean = r2_mean / (non_y_pred.shape[-1])
-
-                mae_mb += mae
+                mae_mb += l2_mae
                 mse_mb += mse
                 non_mae_mb += non_mae
                 norm_rmse_mb += norm_rmse
-                r2_mean_mb += r2_mean
+                r2_mb += r2
+                
 
             mae_mb /= n_mb
             mse_mb /= n_mb
             non_mae_mb /= n_mb
             norm_rmse_mb /= n_mb
-            r2_mean_mb /= n_mb
+            r2_mb /= n_mb
 
             if not eval:
-                writer.add_scalar("mse", mse.item(), self.global_batch_idx)
-                writer.add_scalar("mae", mae.item(), self.global_batch_idx)
-                writer.add_scalar("norm_rmse", norm_rmse,
+                writer.add_scalar("mse", mse_mb.item(),
                                   self.global_batch_idx)
-                writer.add_scalar("non_mae", non_mae.item(),
+                writer.add_scalar("mae", mae_mb.item(),
                                   self.global_batch_idx)
-                writer.add_scalar("r2_mean", r2_mean_mb, self.global_batch_idx)
+                writer.add_scalar("norm_rmse", norm_rmse_mb,
+                                  self.global_batch_idx)
+                writer.add_scalar("non_mae", non_mae_mb.item(),
+                                  self.global_batch_idx)
+                writer.add_scalar("r2", r2_mb, self.global_batch_idx)
                 writer.flush()
                 self.global_batch_idx += 1
 
             pbar.set_description(f"Epoch {self.epoch} {split}")
             pbar.set_postfix_str(
-                f"R2: {r2_mean_mb:.6f} MAE: {mae_mb.item():.6f} NON-MAE: {non_mae_mb.item():.6f}")
+                f"R2: {r2.item():.6f} MAE: {l2_mae.item():.6f} NON-MAE: {non_mae.item():.6f}")
 
-            mae_total += mae_mb.item()
             mse_total += mse_mb.item()
-            norm_rmse_total += norm_rmse_mb
+            mae_total += mae_mb.item()
             non_mae_total += non_mae_mb.item()
-            r2_mean_total += r2_mean_mb
-
-        mse_total /= (i+1)
-        mae_total /= (i+1)
-        non_mae_total /= (i+1)
-        norm_rmse_total /= (i+1)
-        non_norm_rmse_total /= (i+1)
-        r2_mean_total /= (i+1)
+            norm_rmse_total += norm_rmse_mb.item()
+            r2_total += r2_mb.item()
+        
+        mse_total /= i+1
+        mae_total /= i+1
+        non_mae_total /= i+1
+        norm_rmse_total /= i+1
+        non_norm_rmse_total /= i+1
+        r2_total /= i+1
 
         if eval:
             writer.add_scalar("mse", mse_total, self.global_batch_idx)
@@ -302,18 +282,18 @@ class Supervisor(tune.Trainable):
             writer.add_scalar("norm_rmse", norm_rmse_total,
                               self.global_batch_idx)
             writer.add_scalar("non_mae", non_mae_total, self.global_batch_idx)
-            writer.add_scalar("r2", r2_mean_total, self.global_batch_idx)
+            writer.add_scalar("r2", r2_total, self.global_batch_idx)
             writer.flush()
 
         end = time.time()
         total_time = end - start
 
         self.logger.info(
-            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f} R2: {r2_mean_total}"
+            f"EPOCH: {self.epoch} {split} {total_time:.4f} sec - NON-MAE: {non_mae_total:.6f} R2: {r2_total}"
             + f" MSE: {mse_total:.6f} MAE: {mae_total:.6f} NRMSE: {norm_rmse:.6f}"
             + f" LR: {self.scheduler.get_last_lr()[0]:6f}")
 
-        return r2_mean_total
+        return r2_total
 
     def train_model(self):
         try:
@@ -326,7 +306,7 @@ class Supervisor(tune.Trainable):
                 self.config['global_batch_idx'] = self.global_batch_idx
 
                 save_best = False
-                if valid_loss > self.best_loss:
+                if valid_loss < self.best_loss:
                     self.best_loss = valid_loss
                     self.config['best_loss'] = self.best_loss
                     save_best = True
@@ -417,6 +397,6 @@ if __name__ == "__main__":
     # parser.add_argument("seed", type=int, help="seed for random number generator")
     # args = parser.parse_args()
     # seed = args.seed
-    device = torch.device("cuda:6" if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda:1" if torch.cuda.is_available() else 'cpu')
 
     main()

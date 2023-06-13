@@ -1,12 +1,16 @@
-from .utils import *
-from .dataset import l2Dataset
-from .model import Model
-from .loss import *
+import sys
+sys.path.append('../')
+from lib.loss import NegRLoss, mae_loss, mse_loss, norm_rmse_loss, mae_metric, nll_loss, kl_div
+from lib.dataset import l2Dataset
+from lib.model import SF_ATTN_Model as Model
+from lib.utils import sort_fn, split_context_target
+import numpy as np
+import os
+
 import torch
 from torch.utils.data import DataLoader
 import yaml
 import glob
-import dill
 from tqdm import tqdm
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
@@ -36,27 +40,27 @@ class Evaluator():
         l2_y_data = sorted(
             glob.glob(f"{self.config['data_dir']}/SPCAM5/outputs_*"), key=sort_fn)
 
-        n = int(365*0.8)
-        self.l2_x_train = l2_x_data[:n]
-        self.l2_y_train = l2_y_data[:n]
-        self.l2_x_valid = l2_x_data[n:365]
-        self.l2_y_valid = l2_y_data[n:365]
-        self.l2_x_test = l2_x_data[365:]
-        self.l2_y_test = l2_y_data[365:]
+        split_n = int(365*0.8)
+        l2_x_train = l2_x_data[:split_n]
+        l2_y_train = l2_y_data[:split_n]
+        l2_x_valid = l2_x_data[split_n:365]
+        l2_y_valid = l2_y_data[split_n:365]
+        l2_x_test = l2_x_data[365:]
+        l2_y_test = l2_y_data[365:]
 
         x_scaler_minmax = np.load(f"../../notebooks/scalers/dataset_2_x_max.npy")
-        self.y_scaler = np.load(f"../../notebooks/scalers/dataset_2_y_max.npy")
+        self.y_scaler_minmax = np.load(f"../../notebooks/scalers/dataset_2_y_max.npy")
 
         train_dataset = l2Dataset(
-            self.l2_x_train, self.l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
+            l2_x_train, l2_y_train, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
         self.train_loader = DataLoader(
             train_dataset, batch_size=self.config['batch_size'], shuffle=True, drop_last=False, num_workers=2, pin_memory=True)
-        val_dataset = l2Dataset(
-            self.l2_x_valid, self.l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
+        valid_dataset = l2Dataset(
+            l2_x_valid, l2_y_valid, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
         self.valid_loader = DataLoader(
-            val_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
+            valid_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
         test_dataset = l2Dataset(
-            self.l2_x_test, self.l2_y_test, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler, variables=26)
+            l2_x_test, l2_y_test, x_scaler=x_scaler_minmax, y_scaler=self.y_scaler_minmax, variables=26)
         self.test_loader = DataLoader(
             test_dataset, batch_size=self.config['batch_size'], shuffle=False, drop_last=False, num_workers=2, pin_memory=True)
 
@@ -66,48 +70,45 @@ class Evaluator():
         return self.non_mae, self.nmae, self.r
 
     def forward_pass(self, data):
-        with torch.no_grad():
-            n_minibatch = 24
-            n_miniminibatch = 4
-            x_, y_ = data
-
-            x_ = x_.reshape(24, 96, 144, x_.shape[-1])
-            y_ = y_.reshape(24, 96, 144, y_.shape[-1])
-
+        with torch.no_grad():            
             non_y_all = None
             non_y_pred_all = None
 
-            # Split 24 hour data into each hour
-            for mb in range(n_minibatch):
-                # split each hour into 4 minibatches for GPU memory
-                for minimb in range(n_miniminibatch):
-                    x = x_[mb].reshape(1, -1, x_.shape[-1])[:,
-                                                            minimb::n_miniminibatch].to(device)
-                    y = y_[mb].reshape(1, -1, y_.shape[-1])[:,
-                                                            minimb::n_miniminibatch].to(device)
+            x_, y_ = data
+            n_mb = 9
+            # For Tuning
+            rand_idxs = np.random.permutation(np.arange(x_.shape[1] / 144 * n_mb))
+            x_ = x_[:, rand_idxs]
+            y_ = y_[:, rand_idxs]
 
-                    context_idxs, target_idxs = split_context_target(
-                        x, self.config['context_percentage_low'], self.config['context_percentage_high'], axis=1)
+            # TODO: make mini batches random
+            for bg_idx in range(n_mb):
+                x = x_[:, bg_idx::n_mb]
+                y = y_[:, bg_idx::n_mb]
+                if eval is False:  # Random dropout during training
+                    dropout = self.config['batch_dropout']
+                    n = int(x.shape[1] * (1 - dropout))
+                    idxs = np.random.permutation(np.arange(x.shape[1]))[:n]
+                    x = x[:, idxs, :]
+                    y = y[:, idxs, :]
 
-                    x_context = x[:, context_idxs]
-                    y_context = y[:, context_idxs]
-                    x_target = x[:, target_idxs]
-                    y_target = y[:, target_idxs]
+                context_idxs, target_idxs = split_context_target(
+                    x, self.config['context_percentage_low'], self.config['context_percentage_high'], axis=1)
+                x_context = x[:, context_idxs, :].to(device)
+                y_context = y[:, context_idxs].to(device)
+                x_target = x[:, target_idxs, :].to(device)
+                y_target = y[:, target_idxs].to(device)
 
-                    with torch.cuda.amp.autocast():
-                        l2_output_mu, l2_output_cov = self.model(x_context, y_context, x_target)
-                    # else:
-                    #     non_y_pred = self.y_scaler.inverse_transform(
-                    #         l2_output_mu.squeeze().cpu().numpy())
-                    #     non_y = self.y_scaler.inverse_transform(
-                    #         y.squeeze().cpu().numpy())
-                    # return non_y, non_y_pred
-                    if type(self.y_scaler) == np.ndarray:
-                        non_y_pred = self.y_scaler * l2_output_mu.squeeze().cpu().numpy()
-                        non_y = self.y_scaler * y_target.squeeze().cpu().numpy()
+                with torch.cuda.amp.autocast():
+                    l2_output_mu, l2_output_cov, l2_z_mu_c, l2_z_cov_c, l2_z_mu_all, l2_z_cov_all = self.model(
+                        x_context, y_context, x_target, y_target)
+
+                    if type(self.y_scaler_minmax) == np.ndarray:
+                        non_y_pred = self.y_scaler_minmax * l2_output_mu.squeeze().cpu().numpy()
+                        non_y = self.y_scaler_minmax * y_target.squeeze().cpu().numpy()
                     else:
-                        non_y_pred = self.l2_y_scaler.inverse_transform(l2_output_mu.squeeze().cpu().numpy())
-                        non_y = self.l2_y_scaler.inverse_transform(y_target.squeeze().cpu().numpy())
+                        non_y_pred = self.y_scaler_minmax.inverse_transform(l2_output_mu.squeeze().cpu().numpy())
+                        non_y = self.y_scaler_minmax.inverse_transform(y_target.squeeze().cpu().numpy())
 
                     non_y_all = np.concatenate((non_y_all, non_y), axis=0) if non_y_all is not None else non_y
                     non_y_pred_all = np.concatenate((non_y_pred_all, non_y_pred), axis=0) if non_y_pred_all is not None else non_y_pred
@@ -115,7 +116,7 @@ class Evaluator():
             return non_y, non_y_pred, context_idxs, target_idxs
 
     def get_loss(self):
-        step_size = len(self.trainloader)
+        step_size = len(self.train_loader)
         train_event_file = sorted(glob.glob(os.path.join(
             self.dirpath, "runs/train/events.out.tfevents*")), key=os.path.getctime)[-1]
         valid_event_file = sorted(glob.glob(os.path.join(
@@ -193,83 +194,3 @@ class Evaluator():
         self.nmae /= self.n_total
         self.non_mae /= self.n_total
         self.nmae = self.non_mae / self.y_max
-
-    def plot_scenario(self, day, hour=0, split="test"):
-        """
-            Plots xth day of the scenario.
-        """
-        if split == "test":
-            loader = self.test_loader
-        elif split == "valid":
-            loader = self.valid_loader
-        else:
-            loader = self.train_loader
-
-        for i, data in enumerate(loader):
-            if i < day:
-                continue
-            x_, y_ = data
-
-            non_y_all = np.zeros((96 * 144, 26))
-            non_y_pred_all = np.zeros((96 * 144, 26))
-            context_idxs_all = None
-            target_idxs_all = None
-
-            n_mb = 4
-            with torch.no_grad():
-                x_ = x_.reshape(24, 1, -1, x_.shape[-1])[hour]
-                y_ = y_.reshape(24, 1, -1, y_.shape[-1])[hour]
-
-                for mb in range(n_mb):
-                    x = x_[:, mb::n_mb].to(device)
-                    y = y_[:, mb::n_mb].to(device)
-
-                    context_idxs, target_idxs = split_context_target(x, self.config['context_percentage_low'],
-                                                                     self.config['context_percentage_high'], axis=1)
-                    x_context = x[:, context_idxs]
-                    y_context = y[:, context_idxs]
-                    x_target = x[:, target_idxs]
-                    y_target = y[:, target_idxs]
-
-                    # Each context index is repeated n_mb times
-                    mb_context_idxs = mb + n_mb * context_idxs
-                    mb_target_idxs = mb + n_mb * target_idxs
-
-                    context_idxs_all = np.concatenate(
-                        (context_idxs_all, mb_context_idxs), axis=0) if context_idxs_all is not None else mb_context_idxs
-                    target_idxs_all = np.concatenate(
-                        (target_idxs_all, mb_target_idxs), axis=0) if target_idxs_all is not None else mb_target_idxs
-
-                    # For target
-                    with torch.cuda.amp.autocast():
-                        l2_output_mu, l2_output_cov = self.model(
-                            x_context, y_context, x_target)
-                    if type(self.y_scaler) == np.ndarray:
-                        non_y_pred = self.y_scaler * l2_output_mu.squeeze().cpu().numpy()
-                        non_y = self.y_scaler * y_target.squeeze().cpu().numpy()
-                    else:
-                        non_y_pred = self.l2_y_scaler.inverse_transform(l2_output_mu.squeeze().cpu().numpy())
-                        non_y = self.l2_y_scaler.inverse_transform(y_target.squeeze().cpu().numpy())
-                    non_y_pred = self.l2_y_scaler_minmax.inverse_transform(
-                        l2_output_mu.squeeze().cpu().numpy())
-                    non_y_pred_all[mb::n_mb][target_idxs] = non_y_pred
-                    # For Context
-                    with torch.cuda.amp.autocast():
-                        l2_output_mu, l2_output_cov = self.model(
-                            x_context, y_context, x_context)
-                        
-
-                    non_y_all = np.concatenate((non_y_all, non_y), axis=0) if non_y_all is not None else non_y
-                    non_y_pred_all = np.concatenate((non_y_pred_all, non_y_pred), axis=0) if non_y_pred_all is not None else non_y_pred
-
-                    non_y_pred = self.l2_y_scaler_minmax.inverse_transform(
-                        l2_output_mu.squeeze().cpu().numpy())
-                    non_y_pred_all[mb::n_mb][context_idxs] = non_y_pred
-
-                    non_y = self.l2_y_scaler_minmax.inverse_transform(
-                        y.squeeze().cpu().numpy())
-                    non_y_all[mb::n_mb] = non_y
-
-            return non_y_all, non_y_pred_all, context_idxs_all, target_idxs_all
-
-        # return self.losses

@@ -1,7 +1,7 @@
-from .utils import *
-from .dataset import l2Dataset
-from .model import Model
-from .loss import *
+from .lib.utils import *
+from .lib.dataset import l2Dataset
+from .lib.model import Model
+from .lib.loss import *
 import torch
 from torch.utils.data import DataLoader
 import yaml

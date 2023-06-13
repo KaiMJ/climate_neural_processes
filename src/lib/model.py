@@ -546,7 +546,7 @@ class MLP_Decoder(nn.Module):
 
         return mean, cov
 
-class MLP_Z1Z2_Encoder(nn.Module):
+class MFNP_MLP_Z1Z2_Encoder(nn.Module):
 
     def __init__(self, 
             in_dim, 
@@ -608,7 +608,7 @@ class MFNP_Model(nn.Module):
 
         self.l1_z_encoder_model = L1_MLP_ZEncoder(self.z_dim, self.z_dim, self.z_hidden_layers, self.z_hidden_dim)
         self.l2_z_encoder_model = L2_MLP_ZEncoder(self.z_dim+self.z_dim, self.z_dim, self.z_hidden_layers, self.z_hidden_dim)
-        self.z2_z1_agg = MLP_Z1Z2_Encoder(self.z_dim, self.z_dim)
+        self.z2_z1_agg = MFNP_MLP_Z1Z2_Encoder(self.z_dim, self.z_dim)
 
     def sample_z(self, mean, var, n=1):
         """Reparameterisation trick."""
@@ -710,13 +710,13 @@ class Linear(nn.Module):
         return self.linear_layer(x)
 
 
-class LatentEncoder(nn.Module):
+class SF_LatentEncoder(nn.Module):
     """
     Latent Encoder [For prior, posterior]
     """
 
     def __init__(self, config):
-        super(LatentEncoder, self).__init__()
+        super(SF_LatentEncoder, self).__init__()
         input_dim = config['l2_input_dim']
         output_dim = config['l2_output_dim']
         hidden_dim = config['hidden_dim']
@@ -759,13 +759,13 @@ class LatentEncoder(nn.Module):
         # return distribution
         return mu, log_sigma, z
 
-class DeterministicEncoder(nn.Module):
+class SF_DeterministicEncoder(nn.Module):
     """
     Deterministic Encoder [r]
     """
 
     def __init__(self, config):
-        super(DeterministicEncoder, self).__init__()
+        super(SF_DeterministicEncoder, self).__init__()
         input_dim = config['l2_input_dim']
         output_dim = config['l2_output_dim']
         hidden_dim = config['hidden_dim']
@@ -803,7 +803,7 @@ class DeterministicEncoder(nn.Module):
 
         return query
 
-class Decoder(nn.Module):
+class SF_Decoder(nn.Module):
     """
     Decoder for generation 
     """
@@ -815,7 +815,7 @@ class Decoder(nn.Module):
         hidden_layers = config['hidden_layers']
         attention_layers = config['attention_layers']
 
-        super(Decoder, self).__init__()
+        super(SF_Decoder, self).__init__()
         self.target_projection = Linear(input_dim, num_hidden)
         self.linears = nn.ModuleList([Linear(
             num_hidden * 3, num_hidden * 3, w_init='relu') for _ in range(hidden_layers-1)])
@@ -952,9 +952,9 @@ class SF_ATTN_Model(nn.Module):
 
     def __init__(self, config):
         super(SF_ATTN_Model, self).__init__()
-        self.latent_encoder = LatentEncoder(config)
-        self.deterministic_encoder = DeterministicEncoder(config)
-        self.decoder = Decoder(config)
+        self.latent_encoder = SF_LatentEncoder(config)
+        self.deterministic_encoder = SF_DeterministicEncoder(config)
+        self.decoder = SF_Decoder(config)
 
     def forward(self, x_context, y_context, x_target, y_target=None):
         l2_z_mu_c, l2_z_cov_c, z = self.latent_encoder(x_context, y_context)
@@ -1207,7 +1207,7 @@ class Attention(nn.Module):
 
         hidden_dim = config['hidden_dim']
         num_heads = config['num_heads']
-        dropout = config['dropout']
+        dropout = config['dropout_rate']
         self.num_hidden = hidden_dim
         self.num_hidden_per_attn = hidden_dim // num_heads
         self.h = num_heads

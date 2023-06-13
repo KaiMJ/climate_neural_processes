@@ -23,5 +23,5 @@ model:
   dropout_rate: 0.01
 
 
-load_checkpoint: false
+load_checkpoint: MFNN_seed0_lr0.000227_bs_1_Tue Jun 13 04:18:41 2023
 transfer_learning: false
